@@ -1,0 +1,10 @@
+{
+  "A": 0.03476467913835118,
+  "p_th": 0.007395516100265754,
+  "p_th_stderr": 9.454113384447102e-05,
+  "r2_log_fit": 0.9636099176670235,
+  "n_points_used": 15,
+  "n_points_excluded_zero_errors": 0,
+  "n_points_excluded_saturation_regime": 12,
+  "p_max_used_for_fit": 0.01
+}

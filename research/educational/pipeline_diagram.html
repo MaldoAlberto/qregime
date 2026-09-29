@@ -1,0 +1,169 @@
+<title>Pipeline QEM-FTQC</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#faf9f5; --panel:#ffffff; --ink:#1b1d1f; --muted:#5b5f66;
+    --border:#dedad2; --accent:#0f6e63; --accent-soft:#e3efec;
+    --amber:#a6560f; --amber-soft:#f6e9dc; --indigo:#3a3572; --indigo-soft:#e8e6f3;
+    --line:#8a8d92;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15171a; --panel:#1d2023; --ink:#eceae4; --muted:#a2a6ad;
+      --border:#33373c; --accent:#3fcbb9; --accent-soft:#173330;
+      --amber:#e2914f; --amber-soft:#332417; --indigo:#9b93e0; --indigo-soft:#232049;
+      --line:#7d8188; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15171a; --panel:#1d2023; --ink:#eceae4; --muted:#a2a6ad;
+    --border:#33373c; --accent:#3fcbb9; --accent-soft:#173330;
+    --amber:#e2914f; --amber-soft:#332417; --indigo:#9b93e0; --indigo-soft:#232049;
+    --line:#7d8188; color-scheme: dark;
+  }
+  body{ background:var(--bg); color:var(--ink); font-family:"IBM Plex Sans",system-ui,sans-serif;
+        padding:28px 16px 40px; }
+  .wrap{ max-width:920px; margin:0 auto; }
+  h1{ font-size:1.5rem; font-weight:700; margin:0 0 4px; letter-spacing:-0.01em; }
+  .sub{ color:var(--muted); font-size:0.92rem; margin:0 0 22px; max-width:60ch; }
+  figure{ margin:0; }
+  svg{ width:100%; height:auto; display:block; }
+  figcaption{ color:var(--muted); font-size:0.82rem; margin-top:10px; max-width:70ch; }
+  code, .mono{ font-family:"IBM Plex Mono",monospace; }
+  .legend{ display:flex; gap:18px; flex-wrap:wrap; margin-top:18px; font-size:0.78rem; color:var(--muted); }
+  .legend span{ display:inline-flex; align-items:center; gap:6px; }
+  .dot{ width:10px; height:10px; border-radius:2px; display:inline-block; }
+</style>
+
+<div class="wrap">
+  <h1>Del circuito a la decisión: QEM o FTQC</h1>
+  <p class="sub">Cómo se combinan el perfilado del circuito, el banco de técnicas evaluadas esta sesión y la comparación final de régimen.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 1180" role="img" aria-label="Diagrama del pipeline: un circuito de entrada se normaliza a compuertas reales, se perfila con technique_advisor, se le aplican solo las técnicas de reducción recomendadas de un banco de siete, y el circuito resultante se compara en decide_regime entre QEM y FTQC bajo una restricción de presupuesto de qubits, produciendo un régimen final con su razón.">
+
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <!-- ============ STAGE 1: input + normalization ============ -->
+      <rect x="260" y="16" width="380" height="56" rx="8" fill="var(--panel)" stroke="var(--line)"/>
+      <text x="450" y="38" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">circuito de entrada (.qasm)</text>
+      <text x="450" y="58" text-anchor="middle" font-size="11" fill="var(--muted)" class="mono">QFT · sumador · QAOA · aleatorio · …</text>
+
+      <line x1="450" y1="72" x2="450" y2="112" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow)"/>
+      <text x="466" y="96" font-size="11" fill="var(--muted)">normaliza a</text>
+      <text x="466" y="109" font-size="11" fill="var(--muted)" class="mono">cz · rz · sx · x</text>
+
+      <!-- ============ STAGE 2: technique_advisor profiling ============ -->
+      <rect x="180" y="114" width="540" height="112" rx="10" fill="var(--accent-soft)" stroke="var(--accent)"/>
+      <text x="450" y="136" text-anchor="middle" font-size="13.5" font-weight="700" fill="var(--accent)">technique_advisor.py — perfilado</text>
+      <g font-size="10.5" class="mono" fill="var(--ink)">
+        <text x="205" y="158">grado prom./máx.</text>
+        <text x="205" y="174">T-count / compuertas</text>
+        <text x="205" y="190">ancillas candidatas</text>
+        <text x="465" y="158">sparsificabilidad espectral</text>
+        <text x="465" y="174">fracción conocida QCP</text>
+        <text x="465" y="190">nº qubits / compuertas</text>
+      </g>
+      <text x="450" y="212" text-anchor="middle" font-size="11" fill="var(--muted)">→ emite SÍ / NO por técnica, con umbrales medidos, no supuestos</text>
+
+      <line x1="450" y1="226" x2="450" y2="262" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow)"/>
+      <text x="466" y="248" font-size="11" fill="var(--muted)">aplica solo las</text>
+      <text x="466" y="261" font-size="11" fill="var(--muted)">recomendadas</text>
+
+      <!-- ============ STAGE 3: bank of 7 techniques (grid) ============ -->
+      <rect x="40" y="264" width="820" height="230" rx="10" fill="var(--amber-soft)" stroke="var(--amber)"/>
+      <text x="450" y="286" text-anchor="middle" font-size="13.5" font-weight="700" fill="var(--amber)">banco de técnicas evaluadas</text>
+
+      <!-- row 1 -->
+      <g font-size="11.5" fill="var(--ink)">
+        <rect x="58" y="300" width="180" height="66" rx="7" fill="var(--panel)" stroke="var(--border)"/>
+        <text x="148" y="322" text-anchor="middle" font-weight="600">cálculo-ZX</text>
+        <text x="148" y="338" text-anchor="middle" font-size="10" fill="var(--muted)">fusiona fases,</text>
+        <text x="148" y="351" text-anchor="middle" font-size="10" fill="var(--muted)">↓ T-count</text>
+
+        <rect x="248" y="300" width="180" height="66" rx="7" fill="var(--panel)" stroke="var(--border)"/>
+        <text x="338" y="322" text-anchor="middle" font-weight="600">teletransp. RZZ</text>
+        <text x="338" y="338" text-anchor="middle" font-size="10" fill="var(--muted)">↓ SWAPs / profund.</text>
+        <text x="338" y="351" text-anchor="middle" font-size="10" fill="var(--muted)">grado bajo</text>
+
+        <rect x="438" y="300" width="180" height="66" rx="7" fill="var(--panel)" stroke="var(--border)"/>
+        <text x="528" y="322" text-anchor="middle" font-weight="600">AND-gate</text>
+        <text x="528" y="338" text-anchor="middle" font-size="10" fill="var(--muted)">descómputo por</text>
+        <text x="528" y="351" text-anchor="middle" font-size="10" fill="var(--muted)">medición, T=0</text>
+
+        <rect x="628" y="300" width="174" height="66" rx="7" fill="var(--panel)" stroke="var(--border)"/>
+        <text x="715" y="322" text-anchor="middle" font-weight="600">QCP / BQCP</text>
+        <text x="715" y="338" text-anchor="middle" font-size="10" fill="var(--muted)">rastreo acotado de</text>
+        <text x="715" y="351" text-anchor="middle" font-size="10" fill="var(--muted)">estado conocido</text>
+      </g>
+
+      <!-- row 2 -->
+      <g font-size="11.5" fill="var(--ink)">
+        <rect x="102" y="380" width="180" height="66" rx="7" fill="var(--panel)" stroke="var(--border)"/>
+        <text x="192" y="402" text-anchor="middle" font-weight="600">corte de circuitos</text>
+        <text x="192" y="418" text-anchor="middle" font-size="10" fill="var(--muted)">viable si el grafo</text>
+        <text x="192" y="431" text-anchor="middle" font-size="10" fill="var(--muted)">es separable</text>
+
+        <rect x="292" y="380" width="180" height="66" rx="7" fill="var(--panel)" stroke="var(--border)"/>
+        <text x="382" y="402" text-anchor="middle" font-weight="600">RQAOA (2 formas)</text>
+        <text x="382" y="418" text-anchor="middle" font-size="10" fill="var(--muted)">fija arista de bajo</text>
+        <text x="382" y="431" text-anchor="middle" font-size="10" fill="var(--muted)">grado / bloques temp.</text>
+
+        <rect x="482" y="380" width="180" height="66" rx="7" fill="var(--panel)" stroke="var(--border)"/>
+        <text x="572" y="402" text-anchor="middle" font-weight="600">SwapStrategy</text>
+        <text x="572" y="418" text-anchor="middle" font-size="10" fill="var(--muted)">ruteo estructurado,</text>
+        <text x="572" y="431" text-anchor="middle" font-size="10" fill="var(--muted)">grafos densos</text>
+      </g>
+
+      <line x1="450" y1="494" x2="450" y2="530" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow)"/>
+      <text x="466" y="516" font-size="11" fill="var(--muted)">circuito transformado,</text>
+      <text x="466" y="529" font-size="11" fill="var(--muted)">perfilado en backend real</text>
+
+      <!-- ============ STAGE 4: decide_regime ============ -->
+      <rect x="140" y="532" width="620" height="150" rx="10" fill="var(--indigo-soft)" stroke="var(--indigo)"/>
+      <text x="450" y="556" text-anchor="middle" font-size="13.5" font-weight="700" fill="var(--indigo)">decide_regime() — pipeline_v2.py</text>
+
+      <rect x="168" y="572" width="255" height="80" rx="7" fill="var(--panel)" stroke="var(--border)"/>
+      <text x="295" y="594" text-anchor="middle" font-size="12" font-weight="600">QEM</text>
+      <text x="295" y="612" text-anchor="middle" font-size="10.5" class="mono" fill="var(--muted)">t_shot / fidelidad²</text>
+      <text x="295" y="628" text-anchor="middle" font-size="10" fill="var(--muted)">medido en backend real</text>
+
+      <text x="450" y="618" text-anchor="middle" font-size="13" font-weight="700" fill="var(--indigo)">vs.</text>
+
+      <rect x="477" y="572" width="255" height="80" rx="7" fill="var(--panel)" stroke="var(--border)"/>
+      <text x="605" y="594" text-anchor="middle" font-size="12" font-weight="600">FTQC</text>
+      <text x="605" y="612" text-anchor="middle" font-size="10.5" class="mono" fill="var(--muted)">runtime Azure QRE</text>
+      <text x="605" y="628" text-anchor="middle" font-size="10" fill="var(--muted)">sujeto a presupuesto</text>
+
+      <text x="450" y="666" text-anchor="middle" font-size="11" fill="var(--indigo)">restricción dura: si qubits(FTQC) &gt; presupuesto físico → QEM, sin importar el tiempo</text>
+
+      <line x1="450" y1="682" x2="450" y2="718" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+      <!-- ============ STAGE 5: output ============ -->
+      <rect x="260" y="720" width="380" height="70" rx="8" fill="var(--panel)" stroke="var(--ink)" stroke-width="1.4"/>
+      <text x="450" y="748" text-anchor="middle" font-size="13.5" font-weight="700">régimen: QEM / Híbrido / FTQC</text>
+      <text x="450" y="766" text-anchor="middle" font-size="10.5" fill="var(--muted)">+ la razón cuantitativa de por qué</text>
+
+      <!-- ============ footer note: verification discipline ============ -->
+      <rect x="40" y="810" width="820" height="130" rx="10" fill="none" stroke="var(--border)" stroke-dasharray="4 3"/>
+      <text x="450" y="834" text-anchor="middle" font-size="11.5" font-weight="600" fill="var(--muted)">disciplina aplicada en cada caja de este diagrama</text>
+      <g font-size="10.5" fill="var(--muted)">
+        <text x="66" y="860">→ cada técnica: verificada contra literatura, código real de terceros, o una prueba numérica propia</text>
+        <text x="66" y="880">→ 3 bugs propios encontrados y corregidos ANTES de reportar un resultado (T-count=0 falso, fases QCP, SwapStrategy sin rutear)</text>
+        <text x="66" y="900">→ 2 intentos de "atajo" (ML de umbrales, álgebra de paridad hecha a mano) probados, verificados y descartados por no ser fiables</text>
+        <text x="66" y="920">→ validación honesta: leave-one-family-out, no validación cruzada aleatoria (que infla el resultado por familias correlacionadas)</text>
+      </g>
+    </svg>
+    <figcaption>De arriba a abajo: el circuito se normaliza a compuertas reales de backend, <code>technique_advisor.py</code> lo perfila y recomienda qué técnicas intentar de un banco de siete evaluadas esta sesión, se aplican solo esas, y <code>decide_regime()</code> compara el tiempo esperado de QEM contra FTQC bajo una restricción dura de presupuesto de qubits para producir el régimen final.</figcaption>
+  </figure>
+
+  <div class="legend">
+    <span><i class="dot" style="background:var(--accent)"></i> perfilado / decisión final</span>
+    <span><i class="dot" style="background:var(--amber)"></i> banco de técnicas</span>
+    <span><i class="dot" style="background:var(--indigo)"></i> comparación de régimen</span>
+  </div>
+</div>

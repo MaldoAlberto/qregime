@@ -1,0 +1,178 @@
+{
+  "accuracy": 0.7368421052631579,
+  "majority_baseline": 0.5789473684210527,
+  "n": 19,
+  "rows": [
+    {
+      "name": "QFT_n16",
+      "num_qubits": 16,
+      "tcount_frac": 0.20442930153321975,
+      "predicted": true,
+      "actual_gain_pct": 58.333333333333336,
+      "actual_helps": true,
+      "correct": true
+    },
+    {
+      "name": "Adder_n10",
+      "num_qubits": 22,
+      "tcount_frac": 0.14861995753715498,
+      "predicted": true,
+      "actual_gain_pct": 42.857142857142854,
+      "actual_helps": true,
+      "correct": true
+    },
+    {
+      "name": "Adder_n12",
+      "num_qubits": 26,
+      "tcount_frac": 0.14893617021276595,
+      "predicted": true,
+      "actual_gain_pct": 42.857142857142854,
+      "actual_helps": true,
+      "correct": true
+    },
+    {
+      "name": "QAOA_n20_d0.3",
+      "num_qubits": 20,
+      "tcount_frac": 0.14150943396226415,
+      "predicted": true,
+      "actual_gain_pct": 0.0,
+      "actual_helps": false,
+      "correct": false
+    },
+    {
+      "name": "QAOA_n20_d0.6",
+      "num_qubits": 20,
+      "tcount_frac": 0.14129244249726178,
+      "predicted": true,
+      "actual_gain_pct": 0.0,
+      "actual_helps": false,
+      "correct": false
+    },
+    {
+      "name": "QAOA_n24_d0.3",
+      "num_qubits": 24,
+      "tcount_frac": 0.14305177111716622,
+      "predicted": true,
+      "actual_gain_pct": 0.0,
+      "actual_helps": false,
+      "correct": false
+    },
+    {
+      "name": "QAOA_n24_d0.6",
+      "num_qubits": 24,
+      "tcount_frac": 0.14085545722713863,
+      "predicted": true,
+      "actual_gain_pct": 0.0,
+      "actual_helps": false,
+      "correct": false
+    },
+    {
+      "name": "Random_n20_depth16",
+      "num_qubits": 20,
+      "tcount_frac": 0.2139194139194139,
+      "predicted": true,
+      "actual_gain_pct": 16.438356164383563,
+      "actual_helps": true,
+      "correct": true
+    },
+    {
+      "name": "Random_n24_depth16",
+      "num_qubits": 24,
+      "tcount_frac": 0.4883720930232558,
+      "predicted": true,
+      "actual_gain_pct": -3.8095238095238093,
+      "actual_helps": false,
+      "correct": false
+    },
+    {
+      "name": "GHZ_n24",
+      "num_qubits": 24,
+      "tcount_frac": 0.0,
+      "predicted": false,
+      "actual_gain_pct": 0.0,
+      "actual_helps": false,
+      "correct": true
+    },
+    {
+      "name": "GHZ_n28",
+      "num_qubits": 28,
+      "tcount_frac": 0.0,
+      "predicted": false,
+      "actual_gain_pct": 0.0,
+      "actual_helps": false,
+      "correct": true
+    },
+    {
+      "name": "GHZ_n32",
+      "num_qubits": 32,
+      "tcount_frac": 0.0,
+      "predicted": false,
+      "actual_gain_pct": 0.0,
+      "actual_helps": false,
+      "correct": true
+    },
+    {
+      "name": "VQEansatz_n12_r2",
+      "num_qubits": 12,
+      "tcount_frac": 0.3790322580645161,
+      "predicted": true,
+      "actual_gain_pct": 23.404255319148938,
+      "actual_helps": true,
+      "correct": true
+    },
+    {
+      "name": "VQEansatz_n14_r2",
+      "num_qubits": 14,
+      "tcount_frac": 0.3767123287671233,
+      "predicted": true,
+      "actual_gain_pct": 23.636363636363637,
+      "actual_helps": true,
+      "correct": true
+    },
+    {
+      "name": "ToffoliChain_n16",
+      "num_qubits": 16,
+      "tcount_frac": 0.18421052631578946,
+      "predicted": true,
+      "actual_gain_pct": 26.53061224489796,
+      "actual_helps": true,
+      "correct": true
+    },
+    {
+      "name": "ToffoliChain_n20",
+      "num_qubits": 20,
+      "tcount_frac": 0.18421052631578946,
+      "predicted": true,
+      "actual_gain_pct": 26.984126984126984,
+      "actual_helps": true,
+      "correct": true
+    },
+    {
+      "name": "ToffoliChain_n24",
+      "num_qubits": 24,
+      "tcount_frac": 0.18421052631578946,
+      "predicted": true,
+      "actual_gain_pct": 27.272727272727273,
+      "actual_helps": true,
+      "correct": true
+    },
+    {
+      "name": "QPE_ncount9",
+      "num_qubits": 10,
+      "tcount_frac": 0.2305746803428411,
+      "predicted": true,
+      "actual_gain_pct": 96.16087751371116,
+      "actual_helps": true,
+      "correct": true
+    },
+    {
+      "name": "QPE_ncount10",
+      "num_qubits": 11,
+      "tcount_frac": 0.2306695464362851,
+      "predicted": true,
+      "actual_gain_pct": 97.65917602996255,
+      "actual_helps": true,
+      "correct": true
+    }
+  ]
+}

@@ -1,0 +1,336 @@
+\documentclass[9pt,twocolumn]{extarticle}
+\usepackage[margin=1.6cm,columnsep=0.6cm]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{times}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\captionsetup{font=footnotesize,labelfont=bf}
+
+\title{\vspace{-1.2cm}\textbf{¿QEM, QEC o FTQC? Un marco de decisión empírico basado en\\
+técnicas de reducción de circuitos y su validación contra el estado del arte}}
+\author{\footnotesize Sesión de investigación en cómputo cuántico \\[-2pt]
+\footnotesize \texttt{alberto.maldo1312@gmail.com}}
+\date{\footnotesize 26 de septiembre de 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Decidir si un circuito cuántico dado debe ejecutarse bajo mitigación de
+errores cuánticos (QEM), corrección de errores (QEC) o tolerancia a fallos
+completa (FTQC) depende críticamente de qué técnica de reducción/optimización
+de circuito se aplique antes de esa decisión --- una dependencia que rara vez
+se hace explícita. Este trabajo construye y valida empíricamente un
+\emph{pipeline} de decisión (\texttt{pipeline\_v2}/\texttt{decide\_regime})
+que normaliza todas las técnicas comparadas al mismo \emph{basis gate set}
+real de un backend antes de medir T-count, conteo de compuertas de 2 qubits y
+profundidad, evitando así una clase de error metodológico (T-count
+artificialmente nulo) que documentamos y corregimos. Sobre 4 familias de
+circuito y 3 técnicas de preparación (sin reducir, \texttt{transpile}
+optimization\_level=3, cálculo-ZX \texttt{full\_reduce}) encontramos un caso
+límite genuino en el que el cálculo-ZX hace que FTQC gane en tiempo esperado
+(hasta 212$\times$), aunque la restricción de presupuesto de qubits físicos
+sigue bloqueando FTQC en términos absolutos. Extendemos el análisis a seis
+técnicas adicionales de reducción basadas en mediciones intermedias y
+estructura de circuito (des-cómputo por medición de puertas AND, propagación
+de constantes cuántica acotada validada contra BQCP, corte de circuitos,
+RQAOA, y enrutamiento por \texttt{SwapStrategy}), validamos tres métricas
+propias contra números publicados (dentro de 10--25 puntos porcentuales en
+todos los casos comparables), y reportamos honestamente dos resultados
+negativos: que encadenar cálculo-ZX con teletransportación de puertas
+\emph{empeora} la conectividad del circuito en 3 de 4 casos, y que la
+intuición de "qubits de control con mayor grado de interacción son más
+predecibles" resultó ser exactamente la opuesta de lo medido ($r=-0.95$).
+\end{abstract}
+
+\section{Introducción}
+La pregunta de si un algoritmo cuántico dado debe correr bajo QEM (mitigación,
+sin qubits lógicos), QEC (corrección con overhead moderado) o FTQC completo
+(overhead grande pero error arbitrariamente bajo) suele tratarse como una
+propiedad fija del hardware disponible. En este trabajo mostramos que es, en
+cambio, una función del circuito \emph{después} de aplicarle una técnica de
+reducción --- y que la técnica elegida puede cambiar la decisión. Motivado por
+esto, esta sesión de investigación evaluó de forma acumulativa nueve técnicas
+de reducción/transformación de circuitos, siempre exigiendo (a) una
+implementación real o una reproducción fiel del mecanismo publicado, (b)
+verificación numérica cuando aplica, y (c) comparación cuantitativa contra
+números del estado del arte cuando existen. Este artículo consolida esos
+resultados.
+
+\section{Técnicas evaluadas y estado del arte}
+La Tabla~\ref{tab:sota} resume las nueve técnicas evaluadas, su fuente
+publicada, y la herramienta de referencia usada para validarlas (propia o de
+terceros).
+
+\begin{table}[t]
+\centering
+\footnotesize
+\caption{Técnicas evaluadas y su validación contra el estado del arte.}
+\label{tab:sota}
+\begin{tabular}{p{1.55cm}p{2.5cm}p{3.4cm}}
+\toprule
+\textbf{Técnica} & \textbf{Referencia} & \textbf{Validación} \\
+\midrule
+Cálculo-ZX & Duncan et al.\ 2020; PyZX & \texttt{full\_reduce()} real (PyZX) \\
+Teletp.\ de puerta & Gottesman--Chuang 1999 & verificación numérica propia \\
+Des-cómputo AND & Gidney 2018; Jones 2013 & verificación numérica propia (fid.=1.0) \\
+QCP acotado & Chen et al., ICCS 2025 & reproducción propia (\texttt{qcp\_bounded\_tracker.py}) \\
+BQCP & arXiv:2606.02018 (2026) & código real de terceros (GitHub) \\
+Corte de circuitos & Qiskit \texttt{addon-cutting} & paquete real (\texttt{find\_cuts}) \\
+RQAOA & Bravyi et al.\ 2019 & \texttt{OpenQAOA} real (Entropica Labs) \\
+SwapStrategy & Qiskit \texttt{Commuting2qGate\allowbreak Router} & pase real de Qiskit \\
+Azure QRE & Microsoft QRE & API real de estimación \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Metodología: normalización al basis gates real}
+Un error metodológico recurrente en este tipo de comparaciones es medir
+T-count sobre una base de compuertas sintética (p.\ ej.\ \texttt{u3}), donde
+una fase no-Clifford arbitraria queda oculta dentro de una compuerta genérica
+y el T-count aparente cae a 0 sin que el circuito realmente lo permita.
+Corregimos esto normalizando \emph{las tres técnicas} comparadas (sin
+reducir, \texttt{transpile} nivel 3, cálculo-ZX) al mismo basis gates real de
+un backend IBM Heron (\texttt{FakeTorino}: \texttt{cz, rz, sx, x}) antes de
+perfilar cualquier métrica --- así \texttt{rz} con fase arbitraria es la
+única fuente de no-Clifford, y es visible tanto para el perfilado como para
+el cálculo posterior de error/tiempo reales de 2 qubits que usa
+\texttt{decide\_regime()}.
+
+La decisión de régimen compara, en la misma unidad de tiempo esperado:
+\[
+t_{\text{QEM}} = t_{\text{shot}} \cdot \frac{1}{F_{\text{esperada}}^2}
+\qquad\text{vs.}\qquad
+t_{\text{FTQC}} = \text{runtime}_{\text{Azure QRE}}
+\]
+sujeto a una restricción dura de factibilidad: si los qubits físicos que pide
+FTQC exceden el presupuesto disponible, la decisión es QEM sin importar el
+tiempo.
+
+\section{Resultados}
+
+\subsection{Caso límite: el cálculo-ZX puede hacer ganar a FTQC en tiempo}
+La Figura~\ref{fig:regime} muestra el tiempo esperado (escala log) de QEM y
+FTQC para las 4 familias de circuito, comparando la versión sin reducir
+(\emph{baseline}) contra la versión reducida con cálculo-ZX. En la versión
+baseline, QEM gana siempre por varios órdenes de magnitud. Tras cálculo-ZX,
+FTQC pasa a ganar en \emph{tiempo} en las 4 familias (hasta 212$\times$ más
+rápido en QAOA/farm) --- el único de los tres métodos de preparación probados
+donde esto ocurre. Sin embargo, la restricción de presupuesto de qubits
+físicos sigue bloqueando FTQC como opción viable en términos absolutos en
+todos los casos: el resultado es un caso límite genuino (la ventaja de
+tiempo existe) pero no una recomendación práctica de cambiar de régimen.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figs/fig3_regime_case.pdf}
+\caption{Tiempo esperado QEM vs.\ FTQC, antes y después de cálculo-ZX, para
+4 familias de circuito (escala log).}
+\label{fig:regime}
+\end{figure}
+
+\subsection{Validación cuantitativa contra el estado del arte}
+La Figura~\ref{fig:lit} compara nuestras métricas medidas contra los rangos
+publicados. La reducción de T-count por cálculo-ZX que medimos (16--53\%,
+promedio 34.5\%) queda por debajo del rango publicado (51--75\%,
+Kissinger--van~de~Wetering 2020), consistente con que \texttt{full\_reduce()}
+por sí solo (sin post-procesamiento adicional de extracción de circuito
+específico del \emph{paper}) es una cota inferior razonable. La reducción de
+profundidad por teletransportación de puertas RZZ (17.5\% promedio) cae
+dentro del rango publicado (10--25\%). El des-cómputo de puertas AND por
+medición reproduce exactamente el 50\% de reducción de T-count reportado por
+Gidney (2018) para el paso de des-cómputo, verificado numéricamente con
+fidelidad exacta (20 estados aleatorios, ambas ramas de medición). El
+incremento de conteo de compuertas de 2 qubits que observamos tras
+cálculo-ZX (un efecto aparentemente contraintuitivo) está documentado de
+forma independiente en la literatura (arXiv:2311.08881), por lo que no se
+trata de un artefacto de nuestra implementación.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figs/fig2_technique_vs_literature.pdf}
+\caption{Comparación de nuestras métricas medidas contra rangos publicados.}
+\label{fig:lit}
+\end{figure}
+
+\subsection{Las técnicas no siempre se combinan bien}
+Se probó empíricamente si encadenar cálculo-ZX seguido de
+teletransportación de puertas produce una reducción acumulada mayor que
+aplicar cada técnica por separado. El resultado fue negativo: encadenarlas
+infla el grado de interacción del grafo del circuito entre +35\% y +141\% en
+3 de 4 familias, en vez de reducirlo. Esto valida (post-hoc, no por diseño
+original) la arquitectura de \texttt{pipeline\_v2.py}, que ya mantenía ramas
+separadas por régimen en vez de una cadena de técnicas.
+
+\subsection{Propagación de constantes cuántica (QCP/BQCP): resultado negativo}
+Implementamos una versión acotada de \emph{Quantum Constant Propagation}
+(Chen et al., ICCS 2025) con un tamaño máximo de grupo rastreado
+($n_{\text{pcm}}$) y un atajo de "control clásico" para evitar inflar grupos
+innecesariamente. Sobre nuestras 4 familias de circuito (con entradas puestas
+en superposición genuina vía H+S, evitando el caso degenerado de entrada
+clásica), la fracción de qubits con estado conocido permanece en 0\% para
+$n_{\text{pcm}} \le 8$--16, y solo salta a 100\% cuando el grupo rastreado
+cubre el circuito completo --- es decir, sin una utilidad práctica intermedia
+en estos circuitos. Validamos este hallazgo negativo con el código real de
+BQCP (\emph{Branch-Aware QCP}, arXiv:2606.02018), que en nuestros 4 circuitos
+estáticos obtiene 0.0\%, 0.3\%, 0.0\% y 2.2\% de compuertas eliminadas,
+frente a 3.6--4.3\% en su propio generador de circuitos dinámicos (para el
+que fue diseñado). La Figura~\ref{fig:bqcp} muestra ambos conjuntos.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figs/fig4_bqcp.pdf}
+\caption{Reducción de compuertas por BQCP: circuitos estáticos propios (rojo)
+vs.\ circuitos dinámicos de BQCP (azul).}
+\label{fig:bqcp}
+\end{figure}
+
+\subsection{Corte de circuitos: viable solo si el grafo es separable}
+Usando el paquete real \texttt{qiskit-addon-cutting}, encontramos que el
+\emph{overhead} de muestreo depende críticamente de si el grafo de
+interacción del circuito admite un corte de tamaño pequeño. Sumador8 (grafo
+en cadena, altamente separable) necesita solo 2 cortes con un
+\emph{overhead} de $256\times$ --- tratable. QAOA/farm (grafo denso de 17
+qubits, 39 aristas) requiere 18--44 cortes según la estrategia, con
+\emph{overhead} de $10^{17}$--$10^{43}\times$ --- astronómicamente
+intratable. La conclusión es que la \emph{separabilidad estructural} del
+grafo de interacción, no solo el número de qubits, es el predictor correcto
+de si el corte de circuitos es viable.
+
+\subsection{RQAOA: la intuición sobre "qubits de control" era incorrecta}
+Se propuso la hipótesis de que las aristas con mayor grado de interacción
+(qubits más "centrales") tendrían correlaciones $\langle Z_iZ_j\rangle$ más
+confiables/deterministas, permitiendo tratarlas como controles fijos. Usando
+\texttt{OpenQAOA} (RQAOA real, Bravyi et al.\ 2019) medimos esto
+directamente: la correlación entre la suma de grados de una arista y la
+magnitud de $|\langle Z_iZ_j\rangle|$ resultó fuertemente
+\emph{negativa} ($r=-0.95$, Figura~\ref{fig:rqaoa}) --- exactamente lo
+opuesto de la hipótesis. Las aristas de \emph{bajo} grado son las más
+confiables de fijar primero, no las de alto grado. Reportamos esto como
+resultado empírico honesto, no como confirmación de la idea original.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figs/fig5_rqaoa_correlation.pdf}
+\caption{Correlación $|\langle Z_iZ_j\rangle|$ vs.\ suma de grados de la
+arista en QAOA/farm ($r=-0.95$).}
+\label{fig:rqaoa}
+\end{figure}
+
+\subsection{SwapStrategy vs.\ SabreSwap: un cruce dependiente de densidad}
+Se comparó el enrutamiento estructurado de Qiskit
+(\texttt{SwapStrategy}/\texttt{Commuting2qGateRouter}, para circuitos con
+compuertas de 2 qubits mutuamente conmutables como QAOA) contra el
+enrutamiento heurístico genérico \texttt{SabreSwap}, sobre grafos aleatorios
+de 17 qubits con densidad creciente. El costo de \texttt{SwapStrategy} se
+mantiene esencialmente constante ($\sim$120 SWAPs, profundidad 54--63)
+independientemente de la densidad, mientras que \texttt{SabreSwap} escala
+con la densidad (Figura~\ref{fig:density}). El cruce ocurre antes en
+profundidad (densidad~$\approx$0.30) que en conteo de SWAPs
+(densidad~$\approx$0.45--0.60): para grafos suficientemente densos,
+\texttt{SwapStrategy} gana en ambas métricas; para grafos dispersos,
+\texttt{SabreSwap} es mejor en las dos.
+
+Nota de honestidad metodológica: se observa una caída anómala en el conteo
+de SWAPs de \texttt{SabreSwap} entre densidad 0.80 (274 SWAPs) y densidad
+1.00/grafo completo (132 SWAPs) --- lo contrario de lo esperado si la
+tendencia fuera monótona. No se ha investigado la causa raíz de esta caída;
+una hipótesis plausible es que un grafo completo, al ser totalmente
+simétrico, elimina la variabilidad estructural que hace difícil a la
+heurística de Sabre encontrar una solución cercana al óptimo, pero esto no
+se ha verificado y se reporta como observación abierta, no como conclusión.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figs/fig1_density_sweep.pdf}
+\caption{SWAPs (a) y profundidad (b) vs.\ densidad del grafo, para
+\texttt{SwapStrategy} (constante) y \texttt{SabreSwap} (creciente, con una
+anomalía en densidad=1.0).}
+\label{fig:density}
+\end{figure}
+
+\section{Discusión}
+Un patrón transversal emerge de las nueve técnicas: la utilidad de cada una
+depende de una propiedad \emph{estructural} medible del circuito o de su
+grafo de interacción --- no de su tamaño en qubits o compuertas por sí solo.
+El cálculo-ZX ayuda cuando el T-count relativo es alto; el des-cómputo por
+medición ayuda cuando existen ancillas de vida corta con un patrón AND
+explícito; el corte de circuitos ayuda cuando el grafo admite cortes
+pequeños (separabilidad); RQAOA se beneficia de fijar primero las aristas de
+\emph{bajo} grado, no de alto grado; y \texttt{SwapStrategy} gana quando la
+densidad de interacción es alta. Esto motiva directamente el diseño de
+\texttt{technique\_advisor.py}: un evaluador automático que mide estas
+propiedades estructurales (grado promedio/máximo, fracción de T-gates,
+candidatos a ancilla, fracción conocida de QCP) y emite recomendaciones
+SI/NO calibradas empíricamente en esta sesión, en vez de aplicar todas las
+técnicas indiscriminadamente.
+
+\section{Conclusión}
+Este trabajo no reivindica superioridad de ninguna técnica sobre el estado
+del arte publicado; de hecho, en tres métricas comparables nuestras cifras
+quedan dentro o por debajo de los rangos publicados. La contribución es una
+capa de \emph{decisión} que: (1) corrige un error metodológico
+recurrente (T-count oculto por normalización a basis gates sintéticos); (2)
+cuantifica cuándo la elección de técnica de reducción cambia la decisión
+QEM/FTQC; (3) identifica qué propiedad estructural del circuito predice la
+utilidad de cada técnica, validado empíricamente y no solo por intuición
+--- incluyendo dos casos donde la intuición inicial resultó incorrecta
+(encadenamiento de técnicas, y grado de qubit en RQAOA); y (4) deja
+documentada, sin ocultar, una anomalía sin explicar (caída de SWAPs de Sabre
+en el grafo completo) para trabajo futuro.
+
+\section*{Reproducibilidad}
+Todo el código, datos y figuras de este artículo provienen de ejecuciones
+reales sobre PyZX, Qiskit, \texttt{qiskit-ibm-runtime} (\texttt{FakeTorino}),
+\texttt{qiskit-addon-cutting}, OpenQAOA, y el código público de BQCP
+(\url{https://github.com/1nnocenzo/bqcp}). Ningún número reportado es
+estimado a mano.
+
+\begin{thebibliography}{9}
+\footnotesize
+\bibitem{kissinger2020}
+R.\ Kissinger, J.\ van~de~Wetering, ``Reducing T-count with the ZX-calculus,''
+\emph{Phys.\ Rev.\ A}, 102, 022406, 2020.
+
+\bibitem{gidney2018}
+C.\ Gidney, ``Halving the cost of quantum addition,''
+\emph{Quantum} 2, 74, 2018.
+
+\bibitem{jones2013}
+C.\ Jones, ``Low-overhead constructions for the fault-tolerant Toffoli gate,''
+\emph{Phys.\ Rev.\ A} 87, 022328, 2013.
+
+\bibitem{chen2025}
+Chen, Fulginiti, Mendl, ``Optimization Framework for Reducing Mid-circuit
+Measurements and Resets,'' ICCS 2025.
+
+\bibitem{bqcp2026}
+``Branch-Aware Quantum Constant Propagation,'' arXiv:2606.02018, 2026.
+\url{https://github.com/1nnocenzo/bqcp}
+
+\bibitem{bravyi2019}
+S.\ Bravyi, A.\ Kliesch, R.\ Koenig, E.\ Tang, ``Obstacles to Variational
+Quantum Optimization from Symmetry Protection,'' \emph{Phys.\ Rev.\ Lett.}
+125, 260505, 2020 (RQAOA).
+
+\bibitem{gottesman1999}
+D.\ Gottesman, I.\ Chuang, ``Demonstrating the viability of universal
+quantum computation using teleportation and single-qubit operations,''
+\emph{Nature} 402, 390--393, 1999.
+
+\bibitem{qoblib}
+ZIB, ``QOBLIB: Quantum Optimization Benchmark Library,''
+\url{https://github.com/ZIB-AOPT/QOBLIB}.
+
+\bibitem{azureqre}
+Microsoft, ``Azure Quantum Resource Estimator,'' documentación técnica,
+2024.
+\end{thebibliography}
+
+\end{document}

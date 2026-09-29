@@ -1,0 +1,74 @@
+[
+  {
+    "num_qubits": 8,
+    "num_tensors": 465,
+    "log2_flops": 13.570804437724497,
+    "contraction_width": 7.0,
+    "family": "QFT",
+    "name": "QFT_n8"
+  },
+  {
+    "num_qubits": 12,
+    "num_tensors": 477,
+    "log2_flops": 13.08214904135387,
+    "contraction_width": 4.0,
+    "family": "Adder",
+    "name": "Adder_n5"
+  },
+  {
+    "num_qubits": 8,
+    "num_tensors": 133,
+    "log2_flops": 10.62844554013718,
+    "contraction_width": 4.0,
+    "family": "QAOA",
+    "name": "QAOA_n8_d0.4"
+  },
+  {
+    "num_qubits": 8,
+    "num_tensors": 240,
+    "log2_flops": 11.622051819456376,
+    "contraction_width": 5.0,
+    "family": "Random",
+    "name": "Random_n8_depth16"
+  },
+  {
+    "num_qubits": 8,
+    "num_tensors": 52,
+    "log2_flops": 7.845490050944375,
+    "contraction_width": 2.0,
+    "family": "GHZ",
+    "name": "GHZ_n8"
+  },
+  {
+    "num_qubits": 8,
+    "num_tensors": 160,
+    "log2_flops": 10.396604781181859,
+    "contraction_width": 3.0,
+    "family": "VQEansatz",
+    "name": "VQEansatz_n8_r2"
+  },
+  {
+    "num_qubits": 5,
+    "num_tensors": 474,
+    "log2_flops": 13.483815777264256,
+    "contraction_width": 5.0,
+    "family": "Grover",
+    "name": "Grover_n5"
+  },
+  {
+    "num_qubits": 8,
+    "num_tensors": 228,
+    "log2_flops": 11.381542951184585,
+    "contraction_width": 3.0,
+    "family": "ToffoliChain",
+    "name": "ToffoliChain_n8"
+  },
+  {
+    "num_qubits": 6,
+    "num_tensors": 539,
+    "log2_flops": 12.850968150982439,
+    "contraction_width": 4.0,
+    "family": "QPE",
+    "name": "QPE_ncount5"
+  }
+]

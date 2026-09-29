@@ -1,0 +1,10 @@
+{
+  "logreg_lofo_pooled": 0.6224489795918368,
+  "tree_lofo_pooled": 0.5204081632653061,
+  "majority_baseline": 0.6632653061224489,
+  "logreg_large_scale_acc": 0.9473684210526315,
+  "tree_large_scale_acc": 0.9473684210526315,
+  "deployed_rule_large_scale_acc": 0.7368421052631579,
+  "n_98": 98,
+  "n_large": 19
+}

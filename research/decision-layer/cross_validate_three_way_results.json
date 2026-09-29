@@ -1,0 +1,158 @@
+[
+  {
+    "qasm_path": "qft10.qasm",
+    "num_qubits": 10,
+    "tcount": 135,
+    "p_phys": 0.001,
+    "azure": {
+      "d": 9,
+      "qubits": 44060,
+      "runtime_s": 0.000522
+    },
+    "own": {
+      "d": 7,
+      "qubits": 1180,
+      "runtime_s": 0.0002835,
+      "feasible": true
+    },
+    "measured_at_each_d": {
+      "7": {
+        "distance": 7,
+        "rounds": 7,
+        "p_physical": 0.001,
+        "num_shots": 5000,
+        "num_logical_errors": 0,
+        "p_logical": 0.0,
+        "p_logical_stderr": 0.0002
+      },
+      "9": {
+        "distance": 9,
+        "rounds": 9,
+        "p_physical": 0.001,
+        "num_shots": 5000,
+        "num_logical_errors": 0,
+        "p_logical": 0.0,
+        "p_logical_stderr": 0.0002
+      }
+    },
+    "ratio_qubits_azure_over_own": 37.33898305084746,
+    "ratio_runtime_azure_over_own": 1.8412698412698412
+  },
+  {
+    "qasm_path": "adder8.qasm",
+    "num_qubits": 18,
+    "tcount": 112,
+    "p_phys": 0.001,
+    "azure": {
+      "d": 9,
+      "qubits": 47138,
+      "runtime_s": 0.000468
+    },
+    "own": {
+      "d": 5,
+      "qubits": 1152,
+      "runtime_s": 0.000168,
+      "feasible": true
+    },
+    "measured_at_each_d": {
+      "5": {
+        "distance": 5,
+        "rounds": 5,
+        "p_physical": 0.001,
+        "num_shots": 5000,
+        "num_logical_errors": 0,
+        "p_logical": 0.0,
+        "p_logical_stderr": 0.0002
+      },
+      "9": {
+        "distance": 9,
+        "rounds": 9,
+        "p_physical": 0.001,
+        "num_shots": 5000,
+        "num_logical_errors": 0,
+        "p_logical": 0.0,
+        "p_logical_stderr": 0.0002
+      }
+    },
+    "ratio_qubits_azure_over_own": 40.91840277777778,
+    "ratio_runtime_azure_over_own": 2.785714285714286
+  },
+  {
+    "qasm_path": "qaoa_farm.qasm",
+    "num_qubits": 17,
+    "tcount": 56,
+    "p_phys": 0.001,
+    "azure": {
+      "d": 9,
+      "qubits": 38974,
+      "runtime_s": 0.0002628
+    },
+    "own": {
+      "d": 5,
+      "qubits": 1088,
+      "runtime_s": 8.4e-05,
+      "feasible": true
+    },
+    "measured_at_each_d": {
+      "5": {
+        "distance": 5,
+        "rounds": 5,
+        "p_physical": 0.001,
+        "num_shots": 5000,
+        "num_logical_errors": 2,
+        "p_logical": 0.0004,
+        "p_logical_stderr": 0.00028278613827413816
+      },
+      "9": {
+        "distance": 9,
+        "rounds": 9,
+        "p_physical": 0.001,
+        "num_shots": 5000,
+        "num_logical_errors": 0,
+        "p_logical": 0.0,
+        "p_logical_stderr": 0.0002
+      }
+    },
+    "ratio_qubits_azure_over_own": 35.82169117647059,
+    "ratio_runtime_azure_over_own": 3.1285714285714286
+  },
+  {
+    "qasm_path": "random_circuit8.qasm",
+    "num_qubits": 8,
+    "tcount": 117,
+    "p_phys": 0.001,
+    "azure": {
+      "d": 9,
+      "qubits": 43250,
+      "runtime_s": 0.00045
+    },
+    "own": {
+      "d": 7,
+      "qubits": 944,
+      "runtime_s": 0.0002457,
+      "feasible": true
+    },
+    "measured_at_each_d": {
+      "7": {
+        "distance": 7,
+        "rounds": 7,
+        "p_physical": 0.001,
+        "num_shots": 5000,
+        "num_logical_errors": 0,
+        "p_logical": 0.0,
+        "p_logical_stderr": 0.0002
+      },
+      "9": {
+        "distance": 9,
+        "rounds": 9,
+        "p_physical": 0.001,
+        "num_shots": 5000,
+        "num_logical_errors": 0,
+        "p_logical": 0.0,
+        "p_logical_stderr": 0.0002
+      }
+    },
+    "ratio_qubits_azure_over_own": 45.815677966101696,
+    "ratio_runtime_azure_over_own": 1.8315018315018314
+  }
+]

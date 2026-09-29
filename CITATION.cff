@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use qregime or its results, please cite it as below."
+title: "qregime: QEM, QEC or FTQC? A validated decision layer for quantum circuits"
+type: software
+version: 0.1.0
+date-released: 2026-09-29
+license: Apache-2.0
+repository-code: "https://github.com/YOUR-GITHUB-USER/qregime"
+authors:
+  - family-names: "YOUR-FAMILY-NAME"
+    given-names: "YOUR-GIVEN-NAME"
+    email: "alberto.maldo1312@gmail.com"
+keywords:
+  - quantum computing
+  - quantum error mitigation
+  - quantum error correction
+  - fault tolerance
+  - ZX-calculus
+  - resource estimation
+preferred-citation:
+  type: article
+  title: "QEM, QEC, or FTQC? An Empirical Decision Layer for Quantum Circuit Reduction Techniques, Validated Against the State of the Art"
+  authors:
+    - family-names: "YOUR-FAMILY-NAME"
+      given-names: "YOUR-GIVEN-NAME"
+  year: 2026
+  notes: "Preprint. PDF in paper/paper_en.pdf; replace with the arXiv reference once posted."
