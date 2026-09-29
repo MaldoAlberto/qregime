@@ -5,10 +5,10 @@ type: software
 version: 0.1.0
 date-released: 2026-09-29
 license: Apache-2.0
-repository-code: "https://github.com/YOUR-GITHUB-USER/qregime"
+repository-code: "https://github.com/MaldoAlberto/qregime"
 authors:
-  - family-names: "YOUR-FAMILY-NAME"
-    given-names: "YOUR-GIVEN-NAME"
+  - family-names: "Maldonado"
+    given-names: "Alberto"
     email: "alberto.maldo1312@gmail.com"
 keywords:
   - quantum computing
@@ -21,7 +21,7 @@ preferred-citation:
   type: article
   title: "QEM, QEC, or FTQC? An Empirical Decision Layer for Quantum Circuit Reduction Techniques, Validated Against the State of the Art"
   authors:
-    - family-names: "YOUR-FAMILY-NAME"
-      given-names: "YOUR-GIVEN-NAME"
+    - family-names: "Maldonado"
+      given-names: "Alberto"
   year: 2026
   notes: "Preprint. PDF in paper/paper_en.pdf; replace with the arXiv reference once posted."

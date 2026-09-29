@@ -2,7 +2,7 @@
 
 **QEM, QEC or FTQC? A validated, open decision layer for quantum circuits.**
 
-[![CI](https://github.com/YOUR-GITHUB-USER/qregime/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR-GITHUB-USER/qregime/actions/workflows/ci.yml)
+[![CI](https://github.com/MaldoAlberto/qregime/actions/workflows/ci.yml/badge.svg)](https://github.com/MaldoAlberto/qregime/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![Paper](https://img.shields.io/badge/paper-PDF-lightgrey.svg)](paper/paper_en.pdf)
@@ -63,7 +63,7 @@ circuit needs no error correction at all (see the [tutorial](tutorial/qregime_tu
 ## Quickstart
 
 ```bash
-pip install git+https://github.com/YOUR-GITHUB-USER/qregime.git
+pip install git+https://github.com/MaldoAlberto/qregime.git
 qregime hardware                                  # list hardware profiles
 qregime decide my_circuit.qasm --hardware trapped_ion_quantinuum_h2 --budget 5000
 ```

@@ -7,7 +7,7 @@ whether error mitigation, partial error correction or full fault tolerance
 is the cheapest regime that meets your reliability target -- or, if none
 does, how large the gap is.
 
-See https://github.com/YOUR-GITHUB-USER/qregime for the tutorial and the
+See https://github.com/MaldoAlberto/qregime for the tutorial and the
 accompanying paper.
 """
 from .api import (

@@ -5,10 +5,10 @@ the ones in the paper and README, so keep them in sync if they change.
 
 ## Before announcing (in this order)
 
-1. **Replace the placeholders** `YOUR-GITHUB-USER`, `YOUR NAME`,
-   `YOUR-FAMILY-NAME` / `YOUR-GIVEN-NAME` in `README.md`, `README.es.md`,
-   `pyproject.toml`, `CITATION.cff`, `CONTRIBUTING.md` and
-   `src/qregime/__init__.py` (`grep -rn "YOUR-" .` finds them all).
+1. **Check with your employer before publishing,** if you have one. Many
+   employment agreements cover code and publications in the same field as
+   your job, and require approval for open-source releases or for listing
+   the work as independent.
 2. **Push and check that CI is green** (Actions tab). The badge in the README
    stays grey until the first run.
 3. **Repository settings:** add a one-line description and topics

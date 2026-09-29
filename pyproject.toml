@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "YOUR NAME", email = "alberto.maldo1312@gmail.com" }]
+authors = [{ name = "Alberto Maldonado", email = "alberto.maldo1312@gmail.com" }]
 keywords = ["quantum computing", "error mitigation", "quantum error correction",
             "fault tolerance", "ZX-calculus", "resource estimation", "qiskit"]
 classifiers = [
@@ -38,9 +38,9 @@ dev = ["pytest>=7", "nbclient", "ipykernel", "matplotlib"]
 qregime = "qregime.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/YOUR-GITHUB-USER/qregime"
-Paper = "https://github.com/YOUR-GITHUB-USER/qregime/blob/main/paper/paper_en.pdf"
-Issues = "https://github.com/YOUR-GITHUB-USER/qregime/issues"
+Homepage = "https://github.com/MaldoAlberto/qregime"
+Paper = "https://github.com/MaldoAlberto/qregime/blob/main/paper/paper_en.pdf"
+Issues = "https://github.com/MaldoAlberto/qregime/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

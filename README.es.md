@@ -32,7 +32,7 @@ necesita corrección de errores en absoluto (ver el
 ## Inicio rápido
 
 ```bash
-pip install git+https://github.com/YOUR-GITHUB-USER/qregime.git
+pip install git+https://github.com/MaldoAlberto/qregime.git
 qregime hardware
 qregime decide mi_circuito.qasm --hardware trapped_ion_quantinuum_h2 --budget 5000
 ```

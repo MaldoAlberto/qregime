@@ -5,7 +5,7 @@ Thanks for considering it. Contributions of any size are welcome.
 ## Setup
 
 ```bash
-git clone https://github.com/YOUR-GITHUB-USER/qregime.git
+git clone https://github.com/MaldoAlberto/qregime.git
 cd qregime
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,qec]"
