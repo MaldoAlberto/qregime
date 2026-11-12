@@ -95,6 +95,27 @@ def load_qasm_circuit(path: str) -> zx.Circuit:
     return zx.Circuit.from_qasm_file(path)
 
 
+def t_and_rotation_counts(circuit: zx.Circuit) -> tuple:
+    """(exact T gates, arbitrary-angle rotations) of a pyzx circuit.
+
+    pyzx's ``tcount()`` counts every non-Clifford phase as ONE T gate. That
+    is exact for phases that are odd multiples of pi/4, but a rotation by
+    any other angle (denominator > 4 in units of pi) needs many T gates once
+    synthesised in Clifford+T. Those are counted separately here so the
+    resource estimator can charge their synthesis cost (audit finding #4)."""
+    exact = rotations = 0
+    for gate in circuit.gates:
+        t = gate.tcount()
+        if not t:
+            continue
+        denominator = getattr(getattr(gate, "phase", None), "denominator", None)
+        if denominator is not None and denominator > 4:
+            rotations += 1
+        else:
+            exact += t
+    return exact, rotations
+
+
 def resource_report(circuit: zx.Circuit) -> dict:
     """Perfil de métricas de recursos: profundidad, compuertas, T-count."""
     hg = CircuitHypergraph(circuit)
@@ -108,6 +129,8 @@ def resource_report(circuit: zx.Circuit) -> dict:
         "two_qubit_depth": two_qubit_depth,
         "two_qubit_count": circuit.twoqubitcount(),
         "tcount": circuit.tcount(),
+        "tcount_exact": t_and_rotation_counts(circuit)[0],
+        "rotation_count": t_and_rotation_counts(circuit)[1],
         "clifford_count": stats.get("clifford", None),
         "hadamard_count": stats.get("had", None),
     }

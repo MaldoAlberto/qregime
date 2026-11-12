@@ -30,11 +30,10 @@ METODO: para cada d IMPAR de 3 a d_max, calcular:
                      abajo)
   p_logico(d)     = tasa de error logico predicha por NUESTRO ajuste
                      propio (Stim+PyMatching), no un numero de un paper
-  confiabilidad(d) = (1 - p_logico(d))^tcount -- probabilidad de que
-                     NINGUNA de las tcount operaciones propensas a error
-                     falle, la misma simplificacion de "presupuesto de
-                     error repartido por igual entre tcount compuertas"
-                     que ya declara `open_resource_estimator.py`
+  confiabilidad(d) = (1 - p_logico(d))^(n * max(tcount, 1)) -- probabilidad
+                     de que NINGUNO de los n parches falle en NINGUNO de
+                     los pasos logicos (uno por compuerta T, de d rondas
+                     cada uno); antes se usaba ^tcount, que ignoraba n
 
 Se reporta el d de MENOR COSTO (equivalente al d mas pequeño, porque el
 costo es monotono creciente en d) que alcanza confiabilidad >= epsilon.
@@ -57,7 +56,7 @@ de aparentar mas certeza de la que hay.
 """
 from .resources import (
     physical_qubits_per_logical, predicted_logical_error_rate,
-    litinski_15to1_factory_qubits, _load_fit,
+    litinski_15to1_factory_qubits, _load_fit, circuit_failure_reliability,
 )
 
 
@@ -77,7 +76,8 @@ def sweep_partial_qec(num_logical_qubits: int, tcount: int, p_phys: float,
         factory_qubits = litinski_15to1_factory_qubits(d)
         cost = data_qubits + factory_qubits
         p_logical = predicted_logical_error_rate(d, p_phys, fit)
-        reliability = (1 - p_logical) ** tcount
+        # every patch must survive every logical step (audit finding #1)
+        reliability = circuit_failure_reliability(p_logical, num_logical_qubits, tcount)
         rows.append({"d": d, "cost_qubits": cost, "p_logical_per_gate": p_logical,
                       "reliability": reliability})
         if chosen is None and reliability >= reliability_target and cost <= physical_qubit_budget:
@@ -148,7 +148,8 @@ def best_feasible_within_hard_budget(num_logical_qubits: int, tcount: int, p_phy
         if cost > physical_qubit_budget:
             break  # costo monotono creciente en d -- una vez que se pasa, no vuelve a caber
         p_logical = predicted_logical_error_rate(d, p_phys, fit)
-        reliability = (1 - p_logical) ** tcount
+        # every patch must survive every logical step (audit finding #1)
+        reliability = circuit_failure_reliability(p_logical, num_logical_qubits, tcount)
         best = {"d": d, "cost_qubits": cost, "reliability": reliability}
         d += 2
 

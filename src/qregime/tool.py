@@ -58,7 +58,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .advisor import profile_circuit, recommend_techniques
-from .resources import estimate_open_ftqc_with_factories
+from .resources import effective_tcount, estimate_open_ftqc_with_factories
 
 
 def circuit_interaction_graph(qasm_path: str):
@@ -199,22 +199,26 @@ def simulate_expectation(qasm_path: str, hw: HardwareProfile, shots: int = 150,
     consistente (mismo tipo de ruido, solo cambia la magnitud p_2q) en vez
     de mezclar un modelo completo con dos aproximados.
     """
-    from qiskit import QuantumCircuit
+    from qiskit import QuantumCircuit, transpile
     from qiskit.quantum_info import Statevector
     from qiskit_aer import AerSimulator
     from qiskit_aer.noise import NoiseModel, depolarizing_error
     import numpy as np
 
-    qc = QuantumCircuit.from_qasm_file(qasm_path)
+    qc = QuantumCircuit.from_qasm_file(qasm_path).remove_final_measurements(inplace=False)
     ideal_probs = Statevector.from_instruction(qc).probabilities()
     ideal_support = set(np.nonzero(ideal_probs > 1e-9)[0].tolist())
 
     qc_meas = qc.copy()
     qc_meas.measure_all()
+    # Lower every gate to {u, cx} first, so EVERY two-qubit interaction
+    # (ccx, swap, cy, crz, cu1, custom gates...) carries the depolarizing
+    # error. Previously only gates literally named cx/cz/ecr/rzz/cp did, and
+    # a circuit of Toffolis and SWAPs simulated as noiseless (audit finding #8).
+    qc_meas = transpile(qc_meas, basis_gates=["u", "cx"], optimization_level=0)
 
     noise_model = NoiseModel()
-    noise_model.add_all_qubit_quantum_error(
-        depolarizing_error(hw.p_2q, 2), ["cx", "cz", "ecr", "rzz", "cp"])
+    noise_model.add_all_qubit_quantum_error(depolarizing_error(hw.p_2q, 2), ["cx"])
     sim = AerSimulator(method="statevector", noise_model=noise_model)
     counts = sim.run(qc_meas, shots=shots, seed_simulator=seed).result().get_counts()
 
@@ -277,10 +281,14 @@ def analyze_circuit(qasm_path: str, hardware_profile_key: str, verbose: bool = T
     recs = recommend_techniques(qasm_path, profile=profile)[1]
     feas = structural_feasibility_generic(qasm_path, hw, verbose=verbose)
 
+    # charge arbitrary-rotation synthesis, as decide_regime does
+    tcount_ftqc, logical_budget = effective_tcount(
+        profile["tcount_exact"], profile["rotation_count"], 1e-2)
     est_no_reuse = estimate_open_ftqc_with_factories(
-        profile["num_qubits"], profile["tcount"], hw.p_2q)
+        profile["num_qubits"], tcount_ftqc, hw.p_2q, error_budget=logical_budget)
     est_with_reuse = estimate_open_ftqc_with_factories(
-        profile["max_concurrent_qubits"], profile["tcount"], hw.p_2q)
+        max(profile["max_concurrent_qubits"], 1), tcount_ftqc, hw.p_2q,
+        error_budget=logical_budget)
 
     report = {
         "qasm_path": qasm_path,

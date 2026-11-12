@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ._qasm_input import unitary_qasm
 from .advisor import profile_circuit, recommend_techniques
 from .partial_qec import best_feasible_within_hard_budget
 from .regime import (
@@ -25,7 +26,7 @@ from .regime import (
     DEFAULT_RELIABILITY_TARGET,
     decide_regime_formal,
 )
-from .resources import estimate_open_ftqc_with_factories
+from .resources import effective_tcount, estimate_open_ftqc_with_factories
 from .tool import HARDWARE_PROFILES, HardwareProfile, analyze_circuit, simulate_expectation
 
 # Largest circuit for which the empirical (noisy-simulation) QEM estimate is
@@ -56,8 +57,15 @@ def profile(qasm_path: str) -> dict:
     sparsifiability, the diagonal-cost-layer motif fraction (the signal
     behind Proposition 1 of the paper), and the final-state entanglement
     fraction (``None`` above 20 qubits).
+
+    ``tcount`` is pyzx's count (every non-Clifford phase counts as one T);
+    ``tcount_exact`` and ``rotation_count`` split it into exact T gates and
+    arbitrary-angle rotations, whose synthesis costs many T gates each.
+    Final measurements and barriers are ignored; mid-circuit measurements
+    raise ``ValueError``.
     """
-    return profile_circuit(qasm_path)
+    with unitary_qasm(qasm_path) as path:
+        return profile_circuit(path)
 
 
 def recommend(qasm_path: str, circuit_profile: Optional[dict] = None) -> dict:
@@ -71,7 +79,8 @@ def recommend(qasm_path: str, circuit_profile: Optional[dict] = None) -> dict:
     Note: the ``reason`` strings are currently in Spanish (the language the
     research was done in); translating them is an open, welcome contribution.
     """
-    _, recs = recommend_techniques(qasm_path, profile=circuit_profile)
+    with unitary_qasm(qasm_path) as path:
+        _, recs = recommend_techniques(path, profile=circuit_profile)
     out = {}
     for key, value in recs.items():
         rec = value.get("recomendada")
@@ -147,18 +156,32 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
          cannot detect errors when the support is nearly everything;
       3. otherwise a crude analytic proxy, ``(1 - p_2q) ** two_qubit_count``
          (two-qubit gate errors only), labelled as such in the output.
+
+    The FTQC and partial-QEC estimates charge the Clifford+T synthesis cost
+    of arbitrary-angle rotations (``ftqc.tcount_effective``).
     """
     if hardware not in HARDWARE_PROFILES:
         raise ValueError(f"unknown hardware profile {hardware!r}; "
                          f"choose one of {sorted(HARDWARE_PROFILES)}")
+    if not 0 < reliability_target <= 1:
+        raise ValueError(f"reliability_target must be in (0, 1], got {reliability_target}")
+    if physical_qubit_budget < 1:
+        raise ValueError(f"physical_qubit_budget must be >= 1, got {physical_qubit_budget}")
+    with unitary_qasm(qasm_path) as path:
+        return _decide_regime(qasm_path, path, hardware, physical_qubit_budget,
+                              reliability_target, qem_success_fraction, shots)
+
+
+def _decide_regime(qasm_path, path, hardware, physical_qubit_budget,
+                   reliability_target, qem_success_fraction, shots):
     hw = HARDWARE_PROFILES[hardware]
-    prof = profile_circuit(qasm_path)
+    prof = profile_circuit(path)
 
     proxy = (1 - hw.p_2q) ** prof["two_qubit_count"]
     if qem_success_fraction is not None:
         qem_source = "user_supplied"
     elif prof["num_qubits"] <= MAX_QUBITS_FOR_SIMULATION:
-        sim = simulate_expectation(qasm_path, hw, shots=shots, verbose=False)
+        sim = simulate_expectation(path, hw, shots=shots, verbose=False)
         support_fraction = sim["ideal_support_size"] / 2 ** prof["num_qubits"]
         if support_fraction <= MAX_INFORMATIVE_SUPPORT_FRACTION:
             qem_success_fraction = sim["success_fraction_measured"]
@@ -177,11 +200,11 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
         qem_source = "analytic_proxy (1-p_2q)^two_qubit_count"
 
     raw = decide_regime_formal(
-        qasm_path, tcount=prof["tcount"], num_qubits=prof["num_qubits"],
+        path, tcount=prof["tcount_exact"], num_qubits=prof["num_qubits"],
         p_phys=hw.p_2q, qem_success_fraction=qem_success_fraction,
         reliability_target=reliability_target,
         physical_qubit_budget=physical_qubit_budget,
-        verbose=False, profile=prof)
+        verbose=False, profile=prof, rotation_count=prof["rotation_count"])
 
     regime = raw["chosen_regime"]
     if regime.startswith("QEC_PARCIAL"):
@@ -208,7 +231,11 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
                 "reliability_source": qem_source,
                 "meets_target": raw["qem_meets_target"]},
         "ftqc": {"cost_qubits": raw["cost_ftqc_qubits"],
-                 "fits_budget": raw["ftqc_feasible_in_budget"]},
+                 "fits_budget": raw["ftqc_fits_budget"],
+                 "reliability": raw["ftqc_reliability"],
+                 "meets_target": raw["ftqc_meets_target"],
+                 "tcount_effective": raw["tcount_ftqc"],
+                 "infeasible_reason": raw["ftqc_infeasible_reason"]},
         "physical_qubit_budget": physical_qubit_budget,
         "reliability_target": reliability_target,
         "gap": gap,
@@ -223,8 +250,11 @@ def analyze(qasm_path: str, hardware: str = "superconductor_ibm",
     feasibility on the hardware's connectivity, and FTQC estimates with and
     without qubit reuse. With ``simulate=True`` it also runs the noisy
     simulation (only practical up to ~20 qubits)."""
-    return analyze_circuit(qasm_path, hardware, verbose=False,
-                           simulate=simulate, shots=shots)
+    with unitary_qasm(qasm_path) as path:
+        report = analyze_circuit(path, hardware, verbose=False,
+                                 simulate=simulate, shots=shots)
+    report["qasm_path"] = qasm_path
+    return report
 
 
 __all__ = [

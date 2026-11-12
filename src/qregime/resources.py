@@ -39,7 +39,55 @@ def _load_fit():
             "fit_own_threshold_model.py para generar A y p_th desde nuestros "
             "propios datos de Stim+PyMatching."
         )
-    return json.load(open(_FIT_PATH))
+    with open(_FIT_PATH) as f:
+        return json.load(f)
+
+
+def logical_time_steps(tcount: int) -> int:
+    """Logical time steps the circuit occupies: one per T gate, and at least
+    one, so a Clifford-only circuit is still protected for its duration."""
+    return max(int(tcount), 1)
+
+
+def circuit_failure_reliability(p_logical: float, num_logical_qubits: int,
+                                tcount: int) -> float:
+    """Probability that none of the num_logical_qubits patches fails in any
+    of the circuit's logical time steps, given the per-patch, per-step
+    logical error rate p_logical."""
+    return (1 - p_logical) ** (num_logical_qubits * logical_time_steps(tcount))
+
+
+def rotation_synthesis_tcount(rotation_count: int, synthesis_error_budget: float) -> int:
+    """T gates needed to synthesise `rotation_count` arbitrary-angle
+    rotations in Clifford+T, sharing `synthesis_error_budget` equally.
+
+    Uses the Ross-Selinger (2016, arXiv:1403.2975) scaling for single-qubit
+    z-rotations, T ~= 3 * log2(1/eps) per rotation. It is an asymptotic
+    estimate of a well-known algorithm, not an exact gridsynth run; it
+    replaces the old behaviour of counting every arbitrary rotation as ONE
+    T gate (audit finding #4), which understated the FTQC cost of
+    rotation-heavy circuits (VQE, QAOA, Trotterised dynamics) by 1-2 orders
+    of magnitude."""
+    if rotation_count <= 0:
+        return 0
+    if not 0 < synthesis_error_budget < 1:
+        raise ValueError("synthesis_error_budget must be in (0, 1)")
+    eps = synthesis_error_budget / rotation_count
+    return rotation_count * math.ceil(3 * math.log2(1 / eps))
+
+
+def effective_tcount(tcount_exact: int, rotation_count: int,
+                     error_budget: float) -> tuple:
+    """(T gates the FTQC run consumes, error budget left for logical errors).
+
+    When the circuit has arbitrary rotations, half of `error_budget` goes to
+    their synthesis and half to logical errors, so the overall failure
+    probability still stays within `error_budget`. Without rotations the
+    whole budget goes to logical errors, as before."""
+    if rotation_count <= 0 or error_budget <= 0:
+        return int(tcount_exact), error_budget
+    synth = error_budget / 2
+    return int(tcount_exact) + rotation_synthesis_tcount(rotation_count, synth), error_budget - synth
 
 
 def physical_qubits_per_logical(d: int) -> int:
@@ -101,14 +149,29 @@ def estimate_open_ftqc(num_logical_qubits: int, tcount: int, p_phys: float,
     """
     fit = _load_fit()
 
-    if tcount <= 0:
-        raise ValueError("tcount debe ser > 0 para este modelo (el costo se mide en compuertas T)")
+    if not 0 < error_budget < 1:
+        return {"feasible": False, "fit_used": fit,
+                "reason": f"error_budget must be in (0, 1), got {error_budget}: "
+                          "a reliability target of 100% cannot be met by any finite code"}
+    if tcount < 0:
+        raise ValueError("tcount must be >= 0")
+    if num_logical_qubits < 1:
+        raise ValueError("num_logical_qubits must be >= 1")
 
-    # presupuesto de error repartido por igual entre las tcount compuertas T
-    # (simplificacion declarada: Azure QRE reparte el presupuesto entre
-    # varias categorias de error de forma mas fina; aqui se reparte parejo,
-    # lo cual es MAS conservador, no menos)
-    p_logical_target_per_gate = error_budget / max(tcount, 1)
+    # Each T gate is one logical time step of `rounds_per_tgate` (= d)
+    # rounds. A Clifford-only circuit (tcount == 0) still occupies at least
+    # one step, so it gets the minimum distance that protects its memory
+    # instead of crashing (audit finding #5).
+    logical_steps = logical_time_steps(tcount)
+
+    # The fitted p_L(d) comes from Stim memory experiments with rounds = d,
+    # i.e. it is the failure probability of ONE patch over ONE logical step.
+    # During each step every one of the num_logical_qubits patches runs QEC,
+    # so the circuit fails if any patch fails at any step: the budget has to
+    # be shared among num_logical_qubits * logical_steps patch-steps, not
+    # only among the T gates (audit finding #1; the previous version divided
+    # by tcount alone and overstated the reliability of its own answer).
+    p_logical_target_per_gate = error_budget / (num_logical_qubits * logical_steps)
 
     d = solve_min_distance(p_phys, p_logical_target_per_gate, fit)
     infeasible_reason = None
@@ -128,7 +191,7 @@ def estimate_open_ftqc(num_logical_qubits: int, tcount: int, p_phys: float,
     total_physical_qubits = num_logical_qubits * physical_qubits_per_lq
 
     cycle_time_s = 6 * two_qubit_gate_time_s  # 6 pasos por ronda de estabilizadores (estandar)
-    total_rounds = tcount * rounds_per_tgate
+    total_rounds = logical_steps * rounds_per_tgate
     runtime_s = total_rounds * cycle_time_s
 
     achieved_p_logical = predicted_logical_error_rate(d, p_phys, fit)
@@ -147,7 +210,8 @@ def estimate_open_ftqc(num_logical_qubits: int, tcount: int, p_phys: float,
         "assumptions": [
             "compuertas T consumidas secuencialmente (sin paralelizar fabricas de estados magicos, "
             "a diferencia de Litinski 2019 -- esto da una cota SUPERIOR del tiempo real, no una estimacion optimizada)",
-            "presupuesto de error repartido por igual entre las tcount compuertas T",
+            "error budget shared equally among num_logical_qubits x max(tcount, 1) "
+            "patch-steps (each patch runs d QEC rounds per T gate)",
             f"tiempo de ciclo = 6 x tiempo de compuerta de 2 qubits ({two_qubit_gate_time_s*1e9:.0f} ns)",
         ],
     }
@@ -267,12 +331,13 @@ def uncertainty_band(num_logical_qubits: int, tcount: int, p_phys: float,
     for label, p_th_shift in [("central", 0.0), ("optimista", -n_sigma), ("pesimista", +n_sigma)]:
         shifted_fit = dict(fit)
         shifted_fit["p_th"] = fit["p_th"] + p_th_shift * fit["p_th_stderr"]
-        d = solve_min_distance(p_phys, error_budget / max(tcount, 1), shifted_fit)
+        steps = logical_time_steps(tcount)
+        d = solve_min_distance(p_phys, error_budget / (num_logical_qubits * steps), shifted_fit)
         if d is None:
             band[label] = {"feasible": False}
             continue
         pq = num_logical_qubits * physical_qubits_per_logical(d)
-        rounds = tcount * d
+        rounds = steps * d
         runtime = rounds * 6 * 50e-9
         band[label] = {"feasible": True, "codeDistance": d, "physicalQubits": pq, "runtime_s": runtime}
     return band

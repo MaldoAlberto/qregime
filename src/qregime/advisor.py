@@ -284,6 +284,8 @@ def profile_circuit(qasm_path: str, n_pcm_probe: int = 4):
         "num_qubits": metrics["num_qubits"],
         "num_gates": metrics["num_gates"],
         "tcount": metrics["tcount"],
+        "tcount_exact": metrics["tcount_exact"],
+        "rotation_count": metrics["rotation_count"],
         "two_qubit_count": metrics["two_qubit_count"],
         "avg_degree": avg_degree,
         "max_degree": max_degree,

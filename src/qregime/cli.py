@@ -10,7 +10,16 @@ from . import api
 
 
 def _fmt_int(x):
+    if x is None:
+        return "n/a"
     return f"{x:,}" if isinstance(x, int) else str(x)
+
+
+def _unit_interval(text):
+    value = float(text)
+    if not 0 < value <= 1:
+        raise argparse.ArgumentTypeError(f"must be in (0, 1], got {value}")
+    return value
 
 
 def _cmd_hardware(_args):
@@ -56,7 +65,11 @@ def _cmd_decide(args):
     print("\nRegime comparison:")
     print(f"  QEM   {_fmt_int(q['cost_qubits']):>10s} qubits   reliability {q['reliability']:.1%}"
           f"   ({q['reliability_source']})")
-    print(f"  FTQC  {_fmt_int(f['cost_qubits']):>10s} qubits   fits budget: {f['fits_budget']}")
+    print(f"  FTQC  {_fmt_int(f['cost_qubits']):>10s} qubits   fits budget: {f['fits_budget']}"
+          f"   reliability {f['reliability']:.1%}   T-count incl. rotation synthesis "
+          f"{_fmt_int(f['tcount_effective'])}")
+    if f["infeasible_reason"]:
+        print(f"        not estimable: {f['infeasible_reason']}")
 
     print(f"\n=> Regime: {r['regime']}", end="")
     if r["cost_physical_qubits"] is not None:
@@ -65,9 +78,12 @@ def _cmd_decide(args):
         print()
     if r["gap"]:
         g = r["gap"]
-        print(f"   QEM falls short by {g['qem_reliability_shortfall']:.1%} reliability; "
-              f"FTQC overruns the budget by {_fmt_int(g['ftqc_qubit_overrun'])} qubits.")
-        best = api.best_within_budget(p["num_qubits"], max(p["tcount"], 1), r["p_2q"],
+        overrun = g["ftqc_qubit_overrun"]
+        ftqc_msg = ("FTQC is not estimable at this error rate." if overrun is None else
+                    f"FTQC overruns the budget by {_fmt_int(overrun)} qubits." if overrun > 0 else
+                    "FTQC fits the budget but not the reliability target.")
+        print(f"   QEM falls short by {g['qem_reliability_shortfall']:.1%} reliability; {ftqc_msg}")
+        best = api.best_within_budget(p["num_qubits"], f["tcount_effective"], r["p_2q"],
                                       r["physical_qubit_budget"])
         if best.get("realizable"):
             print(f"   Best reachable within budget: d={best['code_distance']}, "
@@ -100,10 +116,10 @@ def main(argv=None) -> int:
     p_dec.add_argument("qasm")
     p_dec.add_argument("--hardware", default="superconductor_ibm",
                        choices=sorted(api.HARDWARE_PROFILES))
-    p_dec.add_argument("--budget", type=int, default=1121,
-                       help="physical-qubit budget (default: 1121, IBM Condor)")
-    p_dec.add_argument("--target", type=float, default=0.5,
-                       help="reliability target in [0,1] (default: 0.5)")
+    p_dec.add_argument("--budget", type=int, default=api.DEFAULT_PHYSICAL_QUBIT_BUDGET,
+                       help="physical-qubit budget (default: %(default)s, IBM Condor)")
+    p_dec.add_argument("--target", type=_unit_interval, default=api.DEFAULT_RELIABILITY_TARGET,
+                       help="reliability target in (0,1] (default: %(default)s)")
     p_dec.add_argument("--json", action="store_true")
     p_dec.set_defaults(func=_cmd_decide)
 

@@ -53,7 +53,7 @@ umbral de confiabilidad objetivo epsilon_target in (0,1]:
 """
 import json
 
-from .resources import estimate_open_ftqc_with_factories
+from .resources import effective_tcount, estimate_open_ftqc_with_factories
 from .treewidth import treewidth_simulability_certificate
 from .advisor import profile_circuit
 from .partial_qec import sweep_partial_qec
@@ -77,7 +77,12 @@ def decide_regime_formal(qasm_path: str, tcount: int, num_qubits: int,
                           error_budget: float = 1e-2,
                           reliability_target: float = DEFAULT_RELIABILITY_TARGET,
                           physical_qubit_budget: int = DEFAULT_PHYSICAL_QUBIT_BUDGET,
-                          verbose: bool = True, profile: dict = None) -> dict:
+                          verbose: bool = True, profile: dict = None,
+                          rotation_count: int = 0) -> dict:
+    """``tcount`` is the number of exact T gates; ``rotation_count`` the
+    arbitrary-angle rotations, whose Clifford+T synthesis cost is added
+    before estimating FTQC and partial QEC (see resources.effective_tcount).
+    With the default rotation_count=0 the behaviour is unchanged."""
     # paso 0: aviso de atajo clasico (Proposiciones 1-2), consultivo, no vinculante
     tw_cert = treewidth_simulability_certificate(qasm_path, verbose=False)
     # Same duplicated-work pattern as Bug 1 (see advisor.recommend_techniques):
@@ -93,45 +98,64 @@ def decide_regime_formal(qasm_path: str, tcount: int, num_qubits: int,
     reliability_qem = qem_success_fraction
     qem_meets_target = reliability_qem >= reliability_target
 
+    # FTQC is designed for reliability 1 - error_budget. When the target is
+    # stricter, design it for the target instead, so FTQC meets the target
+    # by construction rather than being declared feasible while falling
+    # short of it (audit finding #2: the target used to be ignored for FTQC).
+    error_budget = min(error_budget, 1 - reliability_target)
+
+    # T gates the FTQC run actually consumes, including the synthesis of
+    # arbitrary rotations, and the error budget left for logical errors.
+    tcount_ftqc, logical_error_budget = effective_tcount(tcount, rotation_count, error_budget)
+
     # candidato FTQC: nuestro propio estimador (con fabricas de Litinski, ya validado)
     ftqc = estimate_open_ftqc_with_factories(
-        num_logical_qubits=num_qubits, tcount=tcount, p_phys=p_phys,
-        error_budget=error_budget, verbose=False,
+        num_logical_qubits=num_qubits, tcount=tcount_ftqc, p_phys=p_phys,
+        error_budget=logical_error_budget, verbose=False,
     )
-    cost_ftqc = ftqc["physicalQubits"]
+    # An infeasible estimate (p_phys at or above threshold, or d > d_max)
+    # has no physicalQubits: it is reported as such instead of raising
+    # KeyError (audit finding #7).
+    ftqc_estimable = error_budget > 0 and bool(ftqc.get("feasible"))
+    cost_ftqc = ftqc["physicalQubits"] if ftqc_estimable else None
     reliability_ftqc = 1 - error_budget  # por diseño, si es factible
-    ftqc_feasible_in_budget = cost_ftqc <= physical_qubit_budget
+    ftqc_fits_budget = ftqc_estimable and cost_ftqc <= physical_qubit_budget
+    # FTQC is designed for 1 - error_budget; a stricter target is NOT met
+    # by construction (audit finding #2: this used to be ignored).
+    ftqc_meets_target = ftqc_estimable and reliability_ftqc >= reliability_target
+    ftqc_feasible_in_budget = ftqc_fits_budget and ftqc_meets_target
 
+    # Partial QEC is a candidate of the argmin in its own right, not only a
+    # fallback when QEM and FTQC both fail: it can be cheaper than a FTQC
+    # that fits the budget (audit finding #3). Ver partial_qec_sweep.py para
+    # el metodo y su limitacion declarada (extrapolacion de un modelo
+    # calibrado para d grande, no un esquema de QEC parcial real y publicado).
+    partial_qec = sweep_partial_qec(
+        num_logical_qubits=num_qubits, tcount=tcount_ftqc, p_phys=p_phys,
+        reliability_target=reliability_target, physical_qubit_budget=physical_qubit_budget,
+        verbose=False,
+    )
+
+    # Order matters only on ties: QEM first (no code at all), then FTQC, so
+    # a partial-QEC point that costs the same as full FTQC is reported as FTQC.
     feasible = []
     if qem_meets_target:
         feasible.append(("QEM", cost_qem))
     if ftqc_feasible_in_budget:
         feasible.append(("FTQC", cost_ftqc))
+    if partial_qec.get("feasible"):
+        feasible.append((f"QEC_PARCIAL (d={partial_qec['chosen_d']})", partial_qec["cost_qubits"]))
 
     if feasible:
         regime, cost = min(feasible, key=lambda kv: kv[1])
         gap_report = None
-        partial_qec = None
     else:
-        # NUEVO: antes de solo reportar la brecha, intentar llenarla con un
-        # barrido de QEC parcial (distancia menor que la de tolerancia a
-        # fallas completa) -- ver partial_qec_sweep.py para el metodo y su
-        # limitacion declarada (extrapolacion de un modelo calibrado para
-        # d grande, no un esquema de QEC parcial real y publicado)
-        partial_qec = sweep_partial_qec(
-            num_logical_qubits=num_qubits, tcount=tcount, p_phys=p_phys,
-            reliability_target=reliability_target, physical_qubit_budget=physical_qubit_budget,
-            verbose=False,
-        )
-        if partial_qec.get("feasible"):
-            regime = f"QEC_PARCIAL (d={partial_qec['chosen_d']})"
-            cost = partial_qec["cost_qubits"]
-        else:
-            regime = "BRECHA_SIN_CERRAR (ni QEM, ni QEC parcial, ni FTQC alcanzan la restriccion)"
-            cost = None
+        regime = "BRECHA_SIN_CERRAR (ni QEM, ni QEC parcial, ni FTQC alcanzan la restriccion)"
+        cost = None
         gap_report = {
             "gap_de_confiabilidad_QEM": max(0.0, reliability_target - reliability_qem),
-            "gap_de_qubits_FTQC": max(0, cost_ftqc - physical_qubit_budget),
+            "gap_de_qubits_FTQC": (max(0, cost_ftqc - physical_qubit_budget)
+                                   if ftqc_estimable else None),
             "qec_parcial_mejor_intento": partial_qec.get("best_attempt"),
         }
 
@@ -144,7 +168,13 @@ def decide_regime_formal(qasm_path: str, tcount: int, num_qubits: int,
         "reliability_qem_measured": reliability_qem,
         "qem_meets_target": qem_meets_target,
         "cost_ftqc_qubits": cost_ftqc,
+        "ftqc_estimable": ftqc_estimable,
+        "ftqc_infeasible_reason": None if ftqc_estimable else ftqc.get("reason"),
+        "ftqc_fits_budget": ftqc_fits_budget,
+        "ftqc_meets_target": ftqc_meets_target,
+        "ftqc_reliability": reliability_ftqc,
         "ftqc_feasible_in_budget": ftqc_feasible_in_budget,
+        "tcount_ftqc": tcount_ftqc,
         "physical_qubit_budget": physical_qubit_budget,
         "reliability_target": reliability_target,
         "chosen_regime": regime,
@@ -154,7 +184,8 @@ def decide_regime_formal(qasm_path: str, tcount: int, num_qubits: int,
     if verbose:
         flag = " [AVISO: posible atajo clasico -- verificar antes de gastar recursos cuanticos]" if classical_shortcut_flag else ""
         print(f"  {qasm_path:40s} QEM(n={cost_qem},rel={reliability_qem:.2f}) "
-              f"FTQC(n={cost_ftqc:,},factible={ftqc_feasible_in_budget}) -> {regime}{flag}")
+              f"FTQC(n={cost_ftqc if cost_ftqc is None else f'{cost_ftqc:,}'},"
+              f"factible={ftqc_feasible_in_budget}) -> {regime}{flag}")
     return result
 
 
