@@ -12,7 +12,7 @@
 Before you run a quantum circuit, someone has to decide how errors will be
 handled: **mitigate** them on raw physical qubits (QEM), **correct** them with a
 small code (partial QEC), or pay for **full fault tolerance** (FTQC). That choice
-decides whether you need 16 physical qubits or 30,000, and in practice it is
+decides whether you need 16 physical qubits or 75,000, and in practice it is
 usually made by rule of thumb.
 
 `qregime` makes it explicit. Give it an OpenQASM 2 circuit and a hardware
@@ -43,10 +43,10 @@ Techniques worth trying:
 
 Regime comparison:
   QEM           16 qubits   reliability 0.0%   (noisy_simulation (150 shots))
-  FTQC      29,654 qubits   fits budget: False
+  FTQC      75,686 qubits   fits budget: False   reliability 99.0%   T-count incl. rotation synthesis 56,346
 
 => Regime: GAP
-   QEM falls short by 50.0% reliability; FTQC overruns the budget by 28,533 qubits.
+   QEM falls short by 50.0% reliability; FTQC overruns the budget by 74,565 qubits.
    Best reachable within budget: d=3, reliability 0.0% (quartile 1, low).
 ```
 
@@ -56,8 +56,11 @@ take? Sweeping the budget answers that directly:
 
 ![Best reachable reliability vs. physical-qubit budget](docs/budget_staircase.png)
 
-Partial error correction reaches 68% reliability at ~9,700 physical qubits, about
-a third of the cost of full fault tolerance. On 99.99%-fidelity hardware the same
+Partial error correction reaches 56% reliability at ~35,000 physical qubits
+(d = 25) and 78% at ~41,000 (d = 27), about half the cost of full fault
+tolerance. The circuit's 1,008 arbitrary-angle rotations dominate that cost:
+each one is synthesised from ~50 T gates, so its 3,930 non-Clifford gates
+become ~56,000 T gates. On 99.99%-fidelity hardware the same
 circuit needs no error correction at all (see the [tutorial](tutorial/qregime_tutorial.ipynb)).
 
 ## Quickstart
@@ -94,7 +97,7 @@ rerun, not from a vendor service.
 | Surface-code threshold fitted from our own simulation: $p_{th} \approx 0.74\%$, consistent with the published ~1% | Stim + PyMatching, rotated surface code, `research/qec/` |
 | **Proposition 1 (proved):** ZX-calculus cannot reduce T-count when the non-Clifford content is one layer of diagonal $Z_aZ_b$ rotations (QAOA cost layers, Ising Trotter steps) | Proof in the paper; 0% measured reduction on 24/24 QAOA instances and on a circuit derived from IBM's 2023 utility experiment |
 | **Proposition 3 (proved):** the best reliability reachable under a budget can never decrease as the budget grows, so the sweep above is provably optimal | Proof in the paper; checked numerically in `tests/test_proposition3.py` |
-| Partial QEC reaches the same reliability bar at ~1/3 the qubits of full fault tolerance on the flagship circuit | 9,734 vs 29,654 physical qubits |
+| Partial QEC reaches the 50% reliability bar at ~46% of the qubits of full fault tolerance on the flagship circuit | 34,934 vs 75,686 physical qubits |
 | The technique recommender generalizes to circuits larger than it was calibrated on: 73.7% accuracy vs a 57.9% baseline on 19 unseen circuits of up to 32 qubits | `research/decision-layer/large_scale_*` |
 | Cheap enough to run before dispatch: profiling + recommendations take 0.06-1 s on most reference circuits, 11.6 s on the heaviest | after fixing three scaling bugs found by our own stress test (44 s before) |
 

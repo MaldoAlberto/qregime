@@ -48,7 +48,7 @@ Early, thoughtful replies matter more than reach.
 > Before you run a quantum circuit, someone has to decide how errors will be
 > handled: mitigate them on raw qubits, correct them with a small code, or pay
 > for full fault tolerance. That choice is the difference between 16 physical
-> qubits and 30,000, and it is usually made by rule of thumb.
+> qubits and 75,000, and it is usually made by rule of thumb.
 >
 > I've open-sourced **qregime**, a tool that makes the decision explicit: give
 > it an OpenQASM circuit and a hardware profile, and it tells you which
@@ -58,8 +58,8 @@ Early, thoughtful replies matter more than reach.
 > would close it.
 >
 > A few things I learned building it:
-> - For one Shor-like circuit, partial error correction reaches 68% reliability
->   at ~9,700 physical qubits, a third of the cost of full fault tolerance.
+> - For one Shor-like circuit, partial error correction reaches 56% reliability
+>   at ~35,000 physical qubits, about half the cost of full fault tolerance.
 > - On 99.99%-fidelity hardware, the same circuit needs no error correction at all.
 > - ZX-calculus provably cannot reduce T-count on QAOA-style cost layers (a
 >   short proof is in the paper).
@@ -77,7 +77,7 @@ Early, thoughtful replies matter more than reach.
 > Antes de correr un circuito cuántico hay que decidir cómo manejar los
 > errores: mitigarlos sobre los qubits físicos, corregirlos con un código
 > pequeño, o pagar la tolerancia a fallas completa. Es la diferencia entre 16
-> qubits físicos y 30.000, y casi siempre se decide a ojo.
+> qubits físicos y 75.000, y casi siempre se decide a ojo.
 >
 > Liberé como código abierto **qregime**, una herramienta que vuelve explícita
 > esa decisión: le das un circuito OpenQASM y un perfil de hardware, y te dice
@@ -87,8 +87,8 @@ Early, thoughtful replies matter more than reach.
 > cuánto hardware haría falta para cerrarla.
 >
 > Algunas cosas que aprendí en el camino:
-> - Para un circuito tipo Shor, la corrección de errores parcial llega a 68% de
->   confiabilidad con ~9.700 qubits físicos: un tercio del costo de la
+> - Para un circuito tipo Shor, la corrección de errores parcial llega a 56% de
+>   confiabilidad con ~35.000 qubits físicos: cerca de la mitad del costo de la
 >   tolerancia a fallas completa.
 > - En hardware con 99,99% de fidelidad, el mismo circuito no necesita
 >   corrección de errores.
@@ -106,7 +106,7 @@ Early, thoughtful replies matter more than reach.
 ## Short thread (X / Bluesky / Mastodon)
 
 1. QEM, QEC or FTQC? The answer decides whether a circuit needs 16 physical
-   qubits or 30,000. I built an open tool that makes that decision explicit
+   qubits or 75,000. I built an open tool that makes that decision explicit
    and reproducible from a QASM file. [link + chart]
 2. It profiles the circuit, says which reductions are worth trying, estimates
    full fault-tolerance cost from its own Stim+PyMatching threshold fit, and
@@ -114,7 +114,7 @@ Early, thoughtful replies matter more than reach.
 3. When no regime works, it doesn't force an answer: it reports the gap, and
    the best reliability your qubit budget can buy (the staircase in the chart).
    A proof in the paper guarantees that curve never goes down.
-4. Partial QEC gets a Shor-like circuit to 68% reliability at 1/3 the cost of
+4. Partial QEC gets a Shor-like circuit to 56% reliability at ~1/2 the cost of
    full fault tolerance. On 99.99% hardware it needs no QEC at all.
 5. Negative results are in there too: no cheap structural predictor tells you
    whether ZX-calculus will help on a new circuit family. I retracted my own

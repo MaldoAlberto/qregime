@@ -8,7 +8,7 @@ Antes de correr un circuito cuántico alguien tiene que decidir cómo se van a
 manejar los errores: **mitigarlos** sobre los qubits físicos (QEM),
 **corregirlos** con un código pequeño (QEC parcial), o pagar la **tolerancia a
 fallas completa** (FTQC). Esa decisión define si necesitas 16 qubits físicos o
-30.000, y en la práctica suele tomarse a ojo.
+75.000, y en la práctica suele tomarse a ojo.
 
 `qregime` la vuelve explícita. Le das un circuito OpenQASM 2 y un perfil de
 hardware, y te dice:
@@ -23,9 +23,11 @@ hardware, y te dice:
 
 ![Mejor confiabilidad alcanzable vs. presupuesto de qubits físicos](docs/budget_staircase.png)
 
-Para el circuito insignia del proyecto, la QEC parcial llega a 68% de
-confiabilidad con ~9.700 qubits físicos, un tercio del costo de la tolerancia a
-fallas completa. Y en hardware con 99,99% de fidelidad, el mismo circuito no
+Para el circuito insignia del proyecto, la QEC parcial llega a 56% de
+confiabilidad con ~35.000 qubits físicos (d = 25) y a 78% con ~41.000 (d = 27),
+cerca de la mitad del costo de la tolerancia a fallas completa (75.686). Ese
+costo lo dominan sus 1.008 rotaciones de ángulo arbitrario: cada una se
+sintetiza con ~50 compuertas T. Y en hardware con 99,99% de fidelidad, el mismo circuito no
 necesita corrección de errores en absoluto (ver el
 [tutorial](tutorial/qregime_tutorial.ipynb)).
 
