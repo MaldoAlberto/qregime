@@ -14,7 +14,7 @@ Three comparisons, each run on the example circuits in examples/circuits/:
 
 Run (about 3-5 minutes):
 
-    pip install qdk mitiq
+    pip install -e ".[compare]"
     python research/comparison/compare_open_tools.py
 
 Writes research/comparison/compare_open_tools_results.json.

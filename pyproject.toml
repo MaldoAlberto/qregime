@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
-    "qiskit>=1.0",
+    "qiskit>=1.0,<3",
     "qiskit-aer>=0.14",
     "pyzx>=0.8",
     "networkx>=3.0",
@@ -32,6 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 qec = ["stim>=1.12", "pymatching>=2.0"]
 deltakit = ["deltakit>=0.10"]  # examples/deltakit_crosscheck.py
+compare = ["qdk", "mitiq"]  # research/comparison/compare_open_tools.py
 notebook = ["jupyter", "matplotlib"]
 dev = ["pytest>=7", "nbclient", "ipykernel", "matplotlib"]
 
