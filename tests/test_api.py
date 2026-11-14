@@ -17,18 +17,23 @@ def test_recommendations_use_english_keys(circuit):
 
 
 def test_ftqc_estimate_matches_paper():
-    # Flagship circuit of the paper: 16 logical qubits, T-count 3,930, p=0.32%
-    r = qregime.estimate_ftqc(16, 3930, 0.0032)
+    # Flagship circuit of the paper: 16 logical qubits, T-count 3,930.
+    # Trapped-ion H2 (p=0.1%, ToyNoise fit): feasible at d=11.
+    r = qregime.estimate_ftqc(16, 3930, 0.001, noise_model="toy")
     assert r["feasible"]
-    assert r["codeDistance"] == 23
-    assert r["physicalQubits"] == 29654
+    assert r["codeDistance"] == 11
+    assert r["physicalQubits"] == 6534
+    # Superconducting (p=0.32%, SI1000 fit, p_th ~0.40%): too close to
+    # threshold, no distance up to 51 meets the 1% error budget.
+    r = qregime.estimate_ftqc(16, 3930, 0.0032, noise_model="si1000")
+    assert r["feasible"] is False
 
 
 def test_best_within_budget_matches_paper_table():
-    r = qregime.best_within_budget(16, 3930, 0.0032, 10_000)
-    assert r["code_distance"] == 13
-    assert r["cost_physical_qubits"] == 9734
-    assert abs(r["reliability"] - 0.678) < 0.01
+    r = qregime.best_within_budget(16, 3930, 0.001, 3_000, noise_model="toy")
+    assert r["code_distance"] == 7
+    assert r["cost_physical_qubits"] == 2646
+    assert abs(r["reliability"] - 0.597) < 0.01
     assert r["confidence_quartile"] == 3
 
 

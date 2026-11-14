@@ -13,11 +13,13 @@ accompanying paper.
 from .api import (
     HARDWARE_PROFILES,
     MAX_QUBITS_FOR_SIMULATION,
+    NOISE_MODELS,
     HardwareProfile,
     analyze,
     best_within_budget,
     decide_regime,
     estimate_ftqc,
+    estimate_ftqc_band,
     profile,
     recommend,
 )
@@ -26,8 +28,8 @@ from .qasm_export import safe_qasm2_dumps, to_plain_decimal_qasm
 __version__ = "0.1.0"
 
 __all__ = [
-    "profile", "recommend", "estimate_ftqc", "best_within_budget",
+    "profile", "recommend", "estimate_ftqc", "estimate_ftqc_band", "best_within_budget",
     "decide_regime", "analyze", "HARDWARE_PROFILES", "HardwareProfile",
-    "MAX_QUBITS_FOR_SIMULATION", "safe_qasm2_dumps", "to_plain_decimal_qasm",
+    "MAX_QUBITS_FOR_SIMULATION", "NOISE_MODELS", "safe_qasm2_dumps", "to_plain_decimal_qasm",
     "__version__",
 ]

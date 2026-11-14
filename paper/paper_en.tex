@@ -49,7 +49,11 @@ simulation of a rotated surface code (Stim + PyMatching) whose measured
 threshold ($\sim\!0.5$--$0.8\%$) is consistent with the published value
 ($\sim\!1\%$, Fowler et al. 2012) and which we connect to our FTQC
 resource-estimation pipeline, fixing a real bug in the process (a measured
-physical error rate that was computed but never passed to the estimator);
+physical error rate that was computed but never passed to the estimator),
+and later refit per noise model with Deltakit, which lowers the
+superconducting (SI1000) threshold to $0.40\%$ --- enough that at $0.32\%$ no
+surface-code distance helps our flagship circuit, which needs
+$p_{2q}\lesssim0.25\%$ first;
 (ii) that optimized QAOA at depth $p=1,2,3$ never outperforms simple
 classical simulated annealing on any of 27 tested MaxCut instances; and
 (iii) that tensor-network contraction cost, tested as an alternative
@@ -663,6 +667,44 @@ $A=0.0348$, $R^2=0.964$ --- a genuinely self-derived threshold, distinct
 from both the visually-inspected crossover reported in Section
 \ref{sec:qec} and the $\sim1\%$ literature value.
 
+\paragraph{Revision: one threshold per noise model, measured with Deltakit.}
+The fit above was measured on Stim's generated memory circuits, whose noise
+model adds no error to qubits that sit idle during a layer of two-qubit
+gates and gives measurement the same error rate as a gate. That is not the
+noise of any real device, and it turns out to matter more than any other
+assumption in this paper. We therefore refitted the model per circuit-level
+noise model with Riverlane's open-source Deltakit (v0.10.2): its own
+rotated-planar-code Z-memory experiments ($d$ rounds), decoded with
+PyMatching, on $d\in\{3,\dots,11\}$ and a grid of $p$ below threshold, up to
+$2\times10^6$ shots per point (\texttt{research/qec/fit\_threshold\_deltakit.py}).
+The fit uses $d\geq5$ and $p\leq0.8\,p_{th}$ (refined iteratively), where the
+power-law form is meant to hold:
+\begin{center}
+\begin{tabular}{llrrr}
+\toprule
+noise model & used for & $A$ & $p_{th}$ & $\chi^2$/dof \\
+\midrule
+SI1000 (2q $p$, 1q/idle $p/10$, meas.\ $5p$) & superconducting & 0.0589 & $0.404\%\pm0.005$ & 2.37 \\
+ToyNoise (2q $p$, 1q/idle $p/10$, meas.\ $p$) & trapped ion & 0.0421 & $0.847\%\pm0.014$ & 2.13 \\
+SD6 (every op.\ and idle $p$, native CX) & generic default & 0.0680 & $0.653\%\pm0.012$ & 5.61 \\
+\bottomrule
+\end{tabular}
+\end{center}
+Three checks (\texttt{examples/deltakit\_crosscheck.py}): (i) the original
+$0.740\%$ is reproduced through Deltakit's decoding path on Stim's circuits
+($0.720\%\pm0.012$), so the change is a noise-model change, not a tooling
+artefact --- the gap to SD6 is the idle noise; (ii) on ten held-out points
+not used in any fit, including $d=13$ beyond the fitted range, measured
+$p_L$ stays within a factor $1.34$ of the prediction (the model is slightly
+conservative at $d=13$); (iii) a bare rotated patch uses $2d^2-1$ physical
+qubits, so we now count $2d^2$ per logical qubit (Litinski's tile, routing
+included) instead of the $2d^2+3d-1$ read from Stim's \texttt{num\_qubits},
+which counts unused qubit indices. Every hardware profile now carries its
+noise model: SI1000 for the superconducting profile ($p=p_{2q}$), ToyNoise
+for the trapped-ion profiles --- a declared approximation (cheap idles,
+measurement comparable to a gate), not an ion-specific error model. All
+estimates from here on use these fits.
+
 Cross-validating this estimator against Azure QRE on the four reference
 circuits shows runtime agreement within $1.1$--$2.1\times$, but a physical-qubit
 count $24$--$46\times$ lower than Azure's. This large, consistent gap has an
@@ -728,7 +770,8 @@ surfaced a genuinely new finding.
 Transpiling it to \texttt{FakeTorino} with a single fixed configuration
 (the pipeline's original approach: optimization level 1, one transpiler
 seed) gave a measured physical error rate of $0.517\%$ --- close to our
-fitted surface-code threshold ($0.740\%$, Section~\ref{sec:tools-open-estimator}),
+original fitted surface-code threshold ($0.740\%$, Section~\ref{sec:tools-open-estimator};
+under the SI1000 fit adopted later in that section, $0.517\%$ is already above threshold),
 where required code distance (and thus physical qubit count) blows up
 sharply. Azure QRE's resulting estimate: \textbf{4{,}425{,}210} physical
 qubits. Inspecting \texttt{FakeTorino}'s calibration directly showed why
@@ -1066,9 +1109,15 @@ only on T-count). Substituting $n_{\text{logical}}$ with the measured
 \texttt{max\_concurrent\_qubits} is therefore mathematically valid here.
 Re-running the Shor-like circuit ($T\text{-count}=3930$,
 $p_{\mathrm{phys}}=0.32\%$) confirms this: physical qubits drop from
-$18{,}016$ (16 declared qubits) to $12{,}386$ (11 concurrent qubits) ---
-exactly the expected $11/16=0.6875$ ratio --- while runtime is unchanged
-($2.712\times10^{-2}\,\mathrm{s}$ in both cases), as it should be. This is
+$3{,}872$ (16 declared qubits) to $2{,}662$ (11 concurrent qubits) on the
+trapped-ion H2 profile ($p_{2q}=0.1\%$; the superconducting profile has no
+feasible distance at all, Section~\ref{sec:cross-arch}) ---
+exactly the expected $11/16=0.6875$ ratio, since both sizes land on the
+same distance $d=11$ --- while runtime is unchanged
+($1.297\times10^{-2}\,\mathrm{s}$ in both cases), as it should be. (Because
+the logical error budget is shared across every logical patch, $d$ can in
+general grow with $n_{\text{logical}}$; at this T-count and error rate it
+does not between 11 and 16 qubits.) This is
 a genuinely correct, verified reuse calculation, but it is honestly
 partial: it only corrects the data-qubit component that this estimator
 models, not the missing distillation-factory component, so the resulting
@@ -1090,22 +1139,22 @@ qubits,'' which we verified arithmetically. This fixes the per-factory cost
 at $22d^2$ physical qubits. Adding one factory (the only count consistent
 with the sequential-T-consumption timing model already declared; more
 factories would require also correcting that timing model, which we did not
-do) to both sides of the shor-like reuse comparison gives, at $d=23$
-($22d^2=11{,}638$ qubits/factory):
+do) to both sides of the shor-like reuse comparison gives, at $d=11$
+($22d^2=2{,}662$ qubits/factory):
 \begin{center}
 \begin{tabular}{lrr}
 \toprule
  & data qubits only & $+$ 1 factory \\
 \midrule
-16 declared qubits & 18{,}016 & 29{,}654 \\
-11 concurrent qubits (reuse) & 12{,}386 & 24{,}024 \\
-reuse savings & 31.25\% & 18.99\% \\
+16 declared qubits & 3{,}872 & 6{,}534 \\
+11 concurrent qubits (reuse) & 2{,}662 & 5{,}324 \\
+reuse savings & 31.25\% & 18.52\% \\
 \bottomrule
 \end{tabular}
 \end{center}
 The saving stays real and positive --- unlike Azure QRE's inverted,
 backwards result from the same substitution --- but shrinks from 31.25\% to
-18.99\%, because the factory cost ($11{,}638$ qubits) is fixed once $d$ is
+18.52\%, because the factory cost ($2{,}662$ qubits) is fixed once $d$ is
 fixed and does not depend on $n_{\text{logical}}$ at all, while the data-qubit
 cost benefits fully from reuse. This is an honest, quantified answer, not a
 final one: the model still fixes \texttt{num\_factories=1} (tied to the
@@ -1214,7 +1263,7 @@ error-\emph{detected} logical qubits from 98 physical qubits (near
 logical qubits via a concatenated $[[80,48,4]]$ code (overhead
 $\approx$1.67:1, correcting one error). Both are dramatically
 cheaper than the surface-code overhead this paper uses elsewhere
-($\sim$1{,}126 physical qubits per logical qubit at $d=23$) --- but the
+($242$ physical qubits per logical qubit at $d=11$ on the trapped-ion profile) --- but the
 report also states that their deepest test (64 logical qubits, 10 Trotter
 steps of an XY-model simulation) already saw its post-selection
 \emph{acceptance rate fall to $\approx$3.2\%}. That collapse, at only 10
@@ -1230,25 +1279,29 @@ demonstration that this circuit is already reachable.
 
 \subsection{What the estimator says is actually needed, and its floor}
 Table~\ref{tab:demo-threshold} sweeps the number of logical qubits (holding
-T-count and $p_{\mathrm{phys}}$ fixed) through our own factory-aware
+T-count fixed, trapped-ion H2 profile, $p_{\mathrm{phys}}=0.1\%$) through our own factory-aware
 estimator (Section~\ref{sec:qubit-reuse}). Even at a hypothetical single
-logical qubit, the total does not fall below $\sim$12{,}764 physical
-qubits, because the magic-state factory cost ($11{,}638$ qubits at $d=23$)
-is fixed by $p_{\mathrm{phys}}$ and the error budget, not by qubit count.
+logical qubit, the total does not fall below $1{,}944$ physical
+qubits, because the magic-state factory alone costs $1{,}782$ qubits at
+the $d=9$ that a single patch needs. The factory is not independent of
+qubit count, though: the logical error budget is shared across every
+logical patch, so more logical qubits require a larger $d$ ($9\to11$
+here), which also enlarges the factory.
 \begin{table}[h]
 \centering
 \begin{tabular}{rrrrr}
 \toprule
 logical qubits & $d$ & data qubits & factory qubits & total \\
 \midrule
-1  & 23 & 1{,}126  & 11{,}638 & 12{,}764 \\
-4  & 23 & 4{,}504  & 11{,}638 & 16{,}142 \\
-11 & 23 & 12{,}386 & 11{,}638 & 24{,}024 \\
-16 & 23 & 18{,}016 & 11{,}638 & 29{,}654 \\
+1  & 9  & 162     & 1{,}782 & 1{,}944 \\
+4  & 11 & 968     & 2{,}662 & 3{,}630 \\
+11 & 11 & 2{,}662 & 2{,}662 & 5{,}324 \\
+16 & 11 & 3{,}872 & 2{,}662 & 6{,}534 \\
 \bottomrule
 \end{tabular}
-\caption{Physical-qubit floor is set by the factory, not by qubit count,
-at fixed T-count and $p_{\mathrm{phys}}$.}
+\caption{At small qubit counts the factory sets the physical-qubit floor;
+$d$, and with it the factory, grows with qubit count, at fixed T-count and
+$p_{\mathrm{phys}}$.}
 \label{tab:demo-threshold}
 \end{table}
 Reducing T-count instead (Table~\ref{tab:demo-tcount}, $n_{\text{logical}}=16$
@@ -1260,10 +1313,10 @@ per-gate error budget and allows a smaller code distance:
 \toprule
 T-count reduction & T-count & $d$ & total physical qubits \\
 \midrule
-0\%  & 3{,}930 & 23 & 29{,}654 \\
-70\% & 1{,}179 & 19 & 20{,}390 \\
-90\% & 392     & 17 & 16{,}406 \\
-99\% & 39      & 11 & 7{,}046 \\
+0\%  & 3{,}930 & 11 & 6{,}534 \\
+70\% & 1{,}179 & 11 & 6{,}534 \\
+90\% & 392     & 9  & 4{,}374 \\
+99\% & 39      & 7  & 2{,}646 \\
 \bottomrule
 \end{tabular}
 \caption{T-count reduction does shrink the total once factories are
@@ -1325,6 +1378,7 @@ all, and \texttt{estimate\_open\_ftqc\_with\_factories(...)}'s only
 hardware input is the scalar $p_{2q}$.
 
 \subsection{Validated, not argued: the same tool on three real, published architectures}
+\label{sec:cross-arch}
 We ran \texttt{analyze\_circuit()} on the same flagship circuit
 (Section~\ref{sec:flagship-demo}) against three published hardware
 profiles, changing no code between runs (Table~\ref{tab:cross-arch}):
@@ -1335,21 +1389,25 @@ two-qubit fidelity ``$>$99.9\%''), and trapped-ion IonQ/Oxford Ionics
 October 2025).
 \begin{table}[h]
 \centering
-\begin{tabular}{lrrrr}
+\begin{tabular}{lrrlrr}
 \toprule
-architecture & $p_{2q}$ & connectivity & $d$ & total physical qubits \\
+architecture & $p_{2q}$ & connectivity & noise fit & $d$ & total physical qubits \\
 \midrule
-Superconductor (IBM) & 0.32\% & limited (deg.\ 3) & 23 & 29{,}654 \\
-Trapped-ion (Quantinuum H2) & 0.10\% & all-to-all & 9 & 4{,}790 \\
-Trapped-ion (IonQ/Oxford Ionics) & 0.01\% & all-to-all & 5 & 1{,}574 \\
+Superconductor (IBM) & 0.32\% & limited (deg.\ 3) & SI1000 & --- & not feasible ($d>51$) \\
+Trapped-ion (Quantinuum H2) & 0.10\% & all-to-all & ToyNoise & 11 & 6{,}534 \\
+Trapped-ion (IonQ/Oxford Ionics) & 0.01\% & all-to-all & ToyNoise & 5 & 1{,}350 \\
 \bottomrule
 \end{tabular}
 \caption{Same circuit, same tool, three real published architectures --- no
-code changed between rows, only the \texttt{HardwareProfile}.}
+code changed between rows, only the \texttt{HardwareProfile} (error rate,
+connectivity, noise model).}
 \label{tab:cross-arch}
 \end{table}
-The gap between rows is driven almost entirely by $p_{2q}$ through the
-required code distance $d$, and structural feasibility (a real,
+The gap between rows is driven by $p_{2q}$ \emph{relative to the
+threshold of that hardware's noise model}: at $0.32\%$ the superconducting
+profile sits at $0.79\,p_{th}$ of its SI1000 fit, too close for any distance
+up to 51 to meet the error budget (Section~\ref{sec:partial-qec} quantifies
+how much lower $p_{2q}$ has to go). Structural feasibility (a real,
 independent finding for the superconducting case --- Section~\ref{sec:layout-search})
 becomes trivially true for all-to-all connectivity, exactly as the
 formalism predicts, not as a special case bolted on. This is the concrete
@@ -1371,13 +1429,15 @@ cluster-state size and adaptive-measurement depth, not gate count on a
 fixed qubit register, so a QASM file does not represent the same
 computation in that model. We declare this unsupported rather than
 silently reinterpreting a gate circuit as a photonic one.
-\item \textbf{The reused threshold fit} ($p_{th}=0.74\%$, from our own
-Stim simulation under a depolarizing/Pauli noise model, Section~\ref{sec:tools-open-estimator})
-is applied unchanged to trapped-ion $p_{2q}$ values above. This is the
-standard assumption in most surface-code literature, not a claim that
-trapped-ion-specific error channels (ion heating, leakage, global-gate
-crosstalk) were separately verified to be Pauli-like --- an honest
-approximation, carried over rather than re-derived.
+\item \textbf{The noise model behind each threshold} (SI1000 for
+superconducting, ToyNoise for trapped ions, Section~\ref{sec:tools-open-estimator})
+is a circuit-level Pauli model chosen to match each architecture's broad
+error budget (relative cost of idling and measurement), not an
+architecture-specific error model: ion heating, leakage, global-gate
+crosstalk and correlated errors were not modelled. Section~\ref{sec:tools-open-estimator}
+shows how much the threshold moves between noise models ($0.40$--$0.85\%$);
+that spread, not the fit uncertainty, is the dominant uncertainty of every
+resource number in this paper.
 \end{itemize}
 
 \subsection{Beyond analytical estimates: what actually happens if you run it today}
@@ -1498,8 +1558,8 @@ T-count-to-two-qubit-gate ratio measured on our own QAOA reference circuit
 $p_{\rm phys}=10^{-3}$, Azure QRE's surface-code estimate needs
 $79{,}750$ physical qubits ($822\times$ more than the real Steane
 demonstration); even our own most conservative estimator (which
-undercounts by omitting distillation factories) still needs $2{,}256$
-($23\times$ more). This is not evidence that the surface code is worse in
+undercounts by omitting distillation factories) still needs $2{,}904$
+($30\times$ more, ToyNoise fit). This is not evidence that the surface code is worse in
 general --- it is evidence that \emph{code-family choice}, not only
 reduction-technique choice, is a variable this project has not yet
 explored, and one that changes the crossover conclusions of
@@ -1744,7 +1804,7 @@ Proposition~2 rests on the Markov~\&~Shi treewidth-vs-simulation-cost
 theorem~\cite{markovshi2008} for tensor networks. Proposition~3, added in
 this revision, needs no external theorem at all: it is a direct algebraic
 consequence of the two closed-form formulas --- the surface-code
-physical-qubit count and this project's own Stim+PyMatching-calibrated
+physical-qubit count and this project's own Deltakit-calibrated
 logical-error-rate fit --- that Sections~\ref{sec:tools-open-estimator},
 \ref{sec:decision-formal} and \ref{sec:partial-qec} already use
 empirically but never proved anything about.
@@ -1987,11 +2047,13 @@ Section~\ref{sec:crossover}'s separate sweep already showed crossovers do
 exist at larger, swept parameter combinations). The one circuit where the
 formalization earns its keep is our own flagship,
 \texttt{shor\_like\_sequential.qasm}: measured QEM reliability is exactly
-$0\%$ at this hardware profile, FTQC costs $29{,}654$ physical qubits
-(roughly $26\times$ the declared budget), and the procedure reports this
-plainly as an unresolved \textsc{gap} --- reliability short by $0.5$,
-qubits short by $28{,}533$ --- rather than defaulting to whichever regime
-happens to run without erroring. That this is precisely the same circuit
+$0\%$ at this hardware profile, no surface-code distance up to 51 meets the
+FTQC error budget under the SI1000 noise fit, and the procedure reports this
+plainly as an unresolved \textsc{gap} --- reliability short by $0.5$, no
+FTQC point at all --- rather than defaulting to whichever regime happens to
+run without erroring. On the trapped-ion H2 profile the same circuit is
+still a gap at the declared budget, but a quantified one: QEM reaches
+$10\%$, and FTQC costs $6{,}534$ qubits, $5{,}413$ over budget. That this is precisely the same circuit
 Propositions~1--2 could not clear of a possible classical shortcut is not
 a coincidence we manufactured: it is what happens when a formal decision
 procedure is applied honestly to a circuit this project has repeatedly
@@ -2004,7 +2066,7 @@ Section~\ref{sec:decision-formal} deliberately stopped at reporting the
 gap rather than guessing at a regime this project has no estimator for.
 We took one concrete step toward closing that gap rather than leaving it
 purely as a statement: the two building blocks the full-FTQC estimator
-already uses --- our own Stim+PyMatching-calibrated logical-error-rate
+already uses --- our own Deltakit-calibrated logical-error-rate
 fit and the surface-code physical-qubit formula --- do not, in
 themselves, require solving for the large distance $d$ that a strict
 fault-tolerance error budget demands. \texttt{solve\_min\_distance()}
@@ -2016,34 +2078,60 @@ physical rate at a much smaller qubit cost --- can clear the reliability
 target within budget.
 
 \paragraph{Method, and its honest limit.} For each odd $d$ from $3$ to
-$51$, we compute $\text{cost}(d) = n\cdot(2d^2+3d-1) + \text{Litinski
-factory qubits}(d)$ and $\text{reliability}(d) = (1-p_L(d))^{\text{tcount}}$
+$51$, we compute $\text{cost}(d) = n\cdot 2d^2 + \text{Litinski
+factory qubits}(d)$ and $\text{reliability}(d) = (1-p_L(d))^{n\cdot\text{tcount}}$ (every one
+of the $n$ logical patches can fail during each of the tcount T-gates)
 using the project's already-validated fit, and report the smallest-cost
 (equivalently smallest) $d$ clearing the target within budget, or an
 honest failure otherwise. \emph{This is not a validated partial-QEC
-scheme} --- it is an extrapolation of a surface-code threshold model
-calibrated (via Stim+PyMatching) in the distance range used for
-full-FTQC estimates, evaluated here at distances below that calibrated
-range; whether the fit stays accurate that low has not been separately
-verified, and we say so rather than presenting the sweep as more certain
-than it is.
+scheme} --- it is the same surface-code memory model used for full FTQC,
+evaluated at small distances. The fit covers $d=5$--$11$ and is validated on
+held-out points up to $d=13$ within a factor $1.34$
+(Section~\ref{sec:tools-open-estimator}); $d=3$ lies outside the fitted
+range and remains an extrapolation, which we say rather than presenting the
+sweep as more certain than it is. It also models memory only: lattice
+surgery and magic-state injection at small $d$ are not separately
+simulated.
 
-\paragraph{Result on the gap circuit.} Swept over
-\texttt{shor\_like\_sequential.qasm} ($n=16$, tcount$=3{,}930$,
-$p_{2q}=0.0032$): reliability crosses the $0.5$ target between $d=11$
-($41\%$, $7{,}046$ qubits) and $d=13$ ($68\%$, $9{,}734$ qubits) ---
-roughly \emph{a third} the cost of the full-fault-tolerance estimate
-($29{,}654$ qubits at $d=23$) for the same reliability threshold used
-elsewhere in this paper. But $9{,}734$ qubits is still $\sim\!9\times$
+\paragraph{Result on the gap circuit, trapped ion.} Swept over
+\texttt{shor\_like\_sequential.qasm} ($n=16$, tcount$=3{,}930$) on the H2
+profile ($p_{2q}=0.1\%$, ToyNoise fit): reliability crosses the $0.5$ target
+between $d=5$ ($1.3\%$, $1{,}350$ qubits) and $d=7$ ($60\%$, $2{,}646$
+qubits) --- \emph{40\%} of the cost of the full-fault-tolerance estimate
+($6{,}534$ qubits at $d=11$) for the same reliability threshold used
+elsewhere in this paper. But $2{,}646$ qubits is still $\sim\!2.4\times$
 the $1{,}121$-qubit declared budget, so even this cheaper path does not
 close the gap at this budget; the sweep's honest output is
 \texttt{BRECHA\_SIN\_CERRAR}, not a false positive. The useful finding is
 narrower and, we think, more useful than either extreme alone: partial
-distance buys a real, quantified $\sim\!3\times$ reduction in physical-qubit
+distance buys a real, quantified $\sim\!2.5\times$ reduction in physical-qubit
 cost for the same reliability bar, which is exactly the kind of number a
-near-term hardware roadmap needs, even though it is not (yet) enough to
-make \texttt{shor\_like\_sequential.qasm} runnable within a currently
-realistic qubit budget.
+near-term hardware roadmap needs.
+
+\paragraph{Result on the gap circuit, superconducting: how good must the hardware get?}
+On the superconducting profile ($p_{2q}=0.32\%$, SI1000, $p_{th}=0.404\%$)
+the sweep finds \emph{no} distance up to 51 that reaches the target at any
+budget: the best attempt ($d=51$, $\sim\!1.4\times10^5$ qubits) reaches
+$0.02\%$. Rather than stop at ``infeasible'', we swept $p_{2q}$ itself
+(Figure~\ref{fig:error-rate-sweep}, \texttt{examples/error\_rate\_sweep.py}).
+For this circuit, partial QEC first reaches $50\%$ reliability below
+$p_{2q}\approx0.29\%$ (at $d=47$, $\sim\!1.2\times10^5$ qubits), full fault
+tolerance within $d\leq51$ needs $p_{2q}\leq0.246\%$, and full fault tolerance
+becomes affordable on a roadmap scale ($<20{,}000$ qubits) only near
+$p_{2q}\approx0.1\%$ ($19{,}494$ qubits, $d=19$), and $<10{,}000$ qubits at
+$p_{2q}\leq0.064\%$. Running without any correction (QEM, analytic proxy)
+would need $p_{2q}\leq0.022\%$. At the same $p_{2q}=0.1\%$, the SI1000 model
+needs $3\times$ the qubits of the trapped-ion model ($19{,}494$ vs.\
+$6{,}534$): the noise structure (measurement at $5p$), not only the headline
+two-qubit fidelity, decides the overhead.
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figs/error_rate_sweep.png}
+\caption{Physical qubits needed by \texttt{shor\_like\_sequential.qasm}
+under SI1000 noise, as a function of the two-qubit error rate. At today's
+$0.32\%$ neither full fault tolerance nor partial QEC exists for any $d\leq51$.}
+\label{fig:error-rate-sweep}
+\end{figure}
 
 \paragraph{Reframing the question: not pass/fail, but which confidence quartile is actually reachable.}
 A hard budget need not produce a binary answer. We added a second query
@@ -2054,7 +2142,7 @@ non-negotiable, what is the \emph{best} reliability reachable at all
 clears any target), and which confidence quartile does that reliability
 fall into --- $[0,25\%)$ low, $[25,50\%)$ low-moderate, $[50,75\%)$
 moderate, $[75,100\%]$ high? Sweeping the budget itself for this same
-circuit makes the shape of the tradeoff concrete:
+circuit on the trapped-ion H2 profile makes the shape of the tradeoff concrete:
 
 \begin{table}[t]
 \centering\footnotesize
@@ -2063,27 +2151,27 @@ circuit makes the shape of the tradeoff concrete:
 Budget $B$ & Best $d$ & Reliability & Quartile \\
 \midrule
 1{,}121 (declared) & 3 & $\sim$0\% & low \\
-2{,}000 & 5 & $\sim$0\% & low \\
-5{,}000 & 9 & 12.6\% & low \\
-8{,}000 & 11 & 40.8\% & low-moderate \\
-10{,}000 & 13 & 67.8\% & moderate \\
-15{,}000 & 15 & 84.6\% & high \\
+2{,}000 & 5 & 1.3\% & low \\
+3{,}000 & 7 & 59.7\% & moderate \\
+5{,}000 & 9 & 94.1\% & high \\
+7{,}000 & 11 & 99.3\% & high \\
 \bottomrule
 \end{tabular}
 \caption{Best reliability actually reachable at a hard qubit budget
-(\texttt{shor\_like\_sequential.qasm}), reported by confidence quartile
+(\texttt{shor\_like\_sequential.qasm}, trapped-ion H2, $p_{2q}=0.1\%$), reported by confidence quartile
 rather than as pass/fail against a single target.}
 \label{tab:budget-quartile}
 \end{table}
 
 At the project's declared $1{,}121$-qubit budget, the honest answer is
 not ``no code helps'' in the abstract --- it is that even the cheapest
-real surface-code patch ($d=3$) already exhausts more than half the
+real surface-code patch ($d=3$, $486$ qubits) already uses $43\%$ of the
 budget while delivering essentially no protection (reliability
-$\sim 10^{-12}$, lowest quartile): the budget is simply too small
+$\sim 10^{-16}$, lowest quartile): the budget is simply too small
 relative to this circuit's T-count for \emph{any} distance to matter yet.
 Reliability only leaves the lowest quartile once the budget reaches
-roughly $5$--$8\times$ the declared one. This is a more useful statement
+roughly $2.4\times$ the declared one ($\approx2{,}650$ qubits, $d=7$), where it
+jumps straight to the moderate quartile. This is a more useful statement
 than a single pass/fail bit: it tells a reader exactly how much budget
 growth would be needed before partial QEC becomes worth considering for
 this circuit, instead of leaving ``the budget is insufficient'' as an
@@ -2108,13 +2196,13 @@ already committed to.
 Fix $n\geq 1$ logical qubits, tcount $t\geq 1$, and physical error rate
 $0<p<p_{\mathrm{th}}$ (the fitted threshold of
 Section~\ref{sec:tools-open-estimator}). Using this project's own
-Stim-verified surface-code physical-qubit formula
-$N_{\mathrm{data}}(d)=2d^2+3d-1$ and the Litinski~\cite{litinski2019game}
+surface-code physical-qubit formula
+$N_{\mathrm{data}}(d)=2d^2$ (Litinski's tile; Section~\ref{sec:tools-open-estimator}) and the Litinski~\cite{litinski2019game}
 15-to-1 factory formula $N_{\mathrm{fac}}(d)=22d^2$ (one factory), define
 $\mathrm{Cost}(d) = n\cdot N_{\mathrm{data}}(d) + N_{\mathrm{fac}}(d)$ and,
-using this project's own Stim+PyMatching-calibrated fit
+using this project's own calibrated fit for any one noise model
 $p_L(d)=A\cdot(p/p_{\mathrm{th}})^{(d+1)/2}$,
-$\mathrm{Reliability}(d) = (1-p_L(d))^{t}$. Then, on the odd-integer domain
+$\mathrm{Reliability}(d) = (1-p_L(d))^{nt}$. Then, on the odd-integer domain
 $d\in\{3,5,7,\ldots\}$ where $p_L(d)\in[0,1)$:
 \begin{enumerate}
 \item[(a)] $\mathrm{Cost}(d)$ is strictly increasing in $d$.
@@ -2123,11 +2211,8 @@ $d\in\{3,5,7,\ldots\}$ where $p_L(d)\in[0,1)$:
 \end{proposition}
 
 \begin{proof}
-(a) $\mathrm{Cost}(d) = (2n+22)d^2 + 3nd - n$ is a quadratic in $d$ with
-leading coefficient $2n+22>0$ (since $n\geq1$) and vertex at
-$d^\ast=-3n/(2(2n+22))<0$. An upward-opening parabola is strictly
-increasing for all $d>d^\ast$; since $d^\ast<0$, this holds for every
-$d\geq 3$, with no dependence on $n$, $t$, or $p$.
+(a) $\mathrm{Cost}(d) = (2n+22)d^2$ with $2n+22>0$ (since $n\geq1$), which
+is strictly increasing for every $d>0$, with no dependence on $n$, $t$, or $p$.
 
 (b) Write $r=p/p_{\mathrm{th}}\in(0,1)$ (guaranteed by $p<p_{\mathrm{th}}$).
 The exponent $(d+1)/2$ is strictly increasing in $d$, and $x\mapsto r^x$ is
@@ -2136,8 +2221,8 @@ strictly increasing exponent with a strictly decreasing base-$r$ power
 gives $p_L(d)=A\cdot r^{(d+1)/2}$ strictly decreasing in $d$ (for the fixed
 constant $A>0$ from the fit). Hence $1-p_L(d)$ is strictly increasing in
 $d$, and on the domain where $1-p_L(d)\in(0,1]$, the map
-$x\mapsto x^{t}$ is strictly increasing for any fixed $t\geq 1$; composing
-gives $\mathrm{Reliability}(d)=(1-p_L(d))^{t}$ strictly increasing in $d$.
+$x\mapsto x^{nt}$ is strictly increasing for any fixed $nt\geq 1$; composing
+gives $\mathrm{Reliability}(d)=(1-p_L(d))^{nt}$ strictly increasing in $d$.
 \end{proof}
 
 \begin{corollary}
@@ -2169,8 +2254,8 @@ values we happened to sweep.
 \paragraph{Scope, stated honestly.} This proposition proves internal
 consistency of the calibrated model and the algorithms built on it --- it
 does \emph{not} validate the model itself at small $d$, which
-Section~\ref{sec:partial-qec} already flags as extrapolated beyond the
-Stim+PyMatching-calibrated range. A model that is wrong at $d=3$ would
+Section~\ref{sec:partial-qec} already flags as extrapolated below the
+calibrated range ($d\geq5$). A model that is wrong at $d=3$ would
 still satisfy this proposition (monotonicity is a property of the fitted
 functional form $A\cdot r^{(d+1)/2}$ for any fit constants $A,p_{\mathrm{th}}$,
 not evidence that those constants are accurate that low); the two
@@ -2391,6 +2476,39 @@ lowered \texttt{\_MAX\_QUBITS\_FOR\_EXACT\_ENTANGLEMENT\_PROBE} from 24 to
 ``practical, not theoretical'' cap that in practice still hung the
 pipeline before reaching its own graceful-degradation path.
 
+\textbf{Bug 4, found after release: the logical error budget counted one
+patch, not $n$.} The fitted $p_L(d)$ is a per-patch rate over $d$ rounds
+(a rotated-memory experiment with $d$ rounds), and each T-gate takes about
+$d$ rounds, during which \emph{every} logical patch can fail. The FTQC
+estimator nonetheless split the error budget over tcount events instead of
+$n\cdot$tcount, and the partial-QEC sweep used $(1-p_L)^{\text{tcount}}$
+instead of $(1-p_L)^{n\cdot\text{tcount}}$. For the flagship circuit
+($n=16$) the design point $d=23$ actually carried a total logical error
+of $\approx9.4\%$, not the declared $\le1\%$. \emph{Fix:} both now use
+$n\cdot$tcount. \emph{Effect} (under the single $0.74\%$ fit then in use): full FTQC rises from $29{,}654$ to
+$46{,}790$ physical qubits ($d=23\to29$), partial QEC reaches the $0.5$
+target at $d=19$ and $20{,}390$ qubits instead of $d=13$ and $9{,}734$, and
+the partial-QEC saving shrinks from $\sim\!3\times$ to $\sim\!2.3\times$.
+The qualitative verdict for the flagship circuit (an unresolved gap at the
+declared budget) was unchanged.
+
+\textbf{Bug 5, found by cross-checking with Deltakit: the qubit count and
+the noise model.} Two further problems surfaced when we rebuilt the
+surface-code memory experiments with an independent toolchain
+(Section~\ref{sec:tools-open-estimator}, \texttt{examples/deltakit\_crosscheck.py}).
+(i) The per-logical-qubit count $2d^2+3d-1$ was \texttt{stim.Circuit.num\_qubits},
+which counts unused qubit indices of Stim's generator; a rotated patch uses
+$2d^2-1$. We now use $2d^2$ (Litinski's tile, routing included). (ii) The
+single $0.74\%$ threshold came from a noise model with no idle errors and
+cheap measurement; per-noise-model fits give $0.40\%$ (SI1000,
+superconducting) and $0.85\%$ (ToyNoise, trapped ion). \emph{Effect:} (ii)
+dominates. On the superconducting profile the flagship circuit goes from
+``FTQC at $46{,}790$ qubits'' to ``no distance up to 51 works'', so the
+flagship results of Section~\ref{sec:partial-qec} are now reported on the
+trapped-ion H2 profile (FTQC $6{,}534$ qubits, partial QEC $2{,}646$), with
+the superconducting case reported as the error rate it must reach first.
+Every number in this paper uses the corrected model.
+
 \textbf{What remains open, honestly:} pyzx's own QASM parser is slow for
 circuits with many \emph{distinct} phase literals (demonstrated:
 \texttt{QFT\_n16} 2.3~s, \texttt{QFT\_n20} 25.2~s, \texttt{QFT\_n24} did
@@ -2505,10 +2623,14 @@ space a partial QEC scheme would need to fill. Section~\ref{sec:partial-qec}
 took a first, honestly-bounded step at that estimate --- sweeping the
 same validated surface-code model to smaller distances rather than only
 solving for full fault tolerance --- and found a real, quantified
-$\sim\!3\times$ reduction in qubit cost for the same reliability bar
-($9{,}734$ vs.\ $29{,}654$ qubits), not yet enough to close this
-particular gap within the declared budget, but a genuine partial answer
-in a space this project previously could only point at. Proposition~3
+$\sim\!2.5\times$ reduction in qubit cost for the same reliability bar on
+trapped-ion hardware ($2{,}646$ vs.\ $6{,}534$ qubits), not yet enough to
+close this particular gap within the declared budget, but a genuine partial
+answer in a space this project previously could only point at. On
+superconducting hardware under realistic SI1000 noise the answer is
+starker: at $0.32\%$ no surface-code distance helps this circuit, and the
+useful output is the error rate the hardware must reach first ($\approx0.25$--$0.29\%$
+for any correction to work, $\approx0.1\%$ for it to be affordable). Proposition~3
 (Section~\ref{sec:prop3}) then closed a smaller but real rigor gap in
 that same machinery: the monotonicity of cost and reliability in $d$,
 used throughout Sections~\ref{sec:decision-formal}--\ref{sec:partial-qec}

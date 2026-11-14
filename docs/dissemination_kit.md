@@ -58,8 +58,10 @@ Early, thoughtful replies matter more than reach.
 > would close it.
 >
 > A few things I learned building it:
-> - For one Shor-like circuit, partial error correction reaches 68% reliability
->   at ~9,700 physical qubits, a third of the cost of full fault tolerance.
+> - For one Shor-like circuit at today's superconducting error rates (0.32%),
+>   no surface code helps at any distance: the hardware has to reach ~0.25%
+>   first. On 0.1% trapped-ion hardware, partial error correction reaches 60%
+>   reliability at 2,646 physical qubits, 40% of the cost of full fault tolerance.
 > - On 99.99%-fidelity hardware, the same circuit needs no error correction at all.
 > - ZX-calculus provably cannot reduce T-count on QAOA-style cost layers (a
 >   short proof is in the paper).
@@ -87,9 +89,11 @@ Early, thoughtful replies matter more than reach.
 > cuánto hardware haría falta para cerrarla.
 >
 > Algunas cosas que aprendí en el camino:
-> - Para un circuito tipo Shor, la corrección de errores parcial llega a 68% de
->   confiabilidad con ~9.700 qubits físicos: un tercio del costo de la
->   tolerancia a fallas completa.
+> - Para un circuito tipo Shor con las tasas de error actuales de
+>   superconductores (0,32%), ningún código de superficie ayuda a ninguna
+>   distancia: el hardware primero tiene que llegar a ~0,25%. En iones atrapados
+>   con 0,1%, la corrección de errores parcial llega a 60% de confiabilidad con
+>   2.646 qubits físicos, el 40% del costo de la tolerancia a fallas completa.
 > - En hardware con 99,99% de fidelidad, el mismo circuito no necesita
 >   corrección de errores.
 > - ZX-calculus está demostrado que no puede reducir el T-count en capas de
@@ -109,13 +113,14 @@ Early, thoughtful replies matter more than reach.
    qubits or 30,000. I built an open tool that makes that decision explicit
    and reproducible from a QASM file. [link + chart]
 2. It profiles the circuit, says which reductions are worth trying, estimates
-   full fault-tolerance cost from its own Stim+PyMatching threshold fit, and
+   full fault-tolerance cost from its own per-hardware threshold fits (Deltakit), and
    picks the cheapest regime that meets your reliability target.
 3. When no regime works, it doesn't force an answer: it reports the gap, and
    the best reliability your qubit budget can buy (the staircase in the chart).
    A proof in the paper guarantees that curve never goes down.
-4. Partial QEC gets a Shor-like circuit to 68% reliability at 1/3 the cost of
-   full fault tolerance. On 99.99% hardware it needs no QEC at all.
+4. At 0.32% superconducting error rates no surface code helps a Shor-like
+   circuit at all; at 0.1% trapped-ion rates partial QEC gets it to 60%
+   reliability at 40% of the cost of full fault tolerance. On 99.99% hardware it needs no QEC at all.
 5. Negative results are in there too: no cheap structural predictor tells you
    whether ZX-calculus will help on a new circuit family. I retracted my own
    82.9% when it didn't survive leave-one-family-out validation.

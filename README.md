@@ -31,7 +31,7 @@ $ qregime decide examples/circuits/shor_like_sequential.qasm
 
 Circuit   examples/circuits/shor_like_sequential.qasm
           16 qubits, 28618 gates, T-count 3930
-Hardware  Superconducting (IBM heavy-hex)  (p_2q = 0.0032)
+Hardware  Superconducting (IBM heavy-hex)  (p_2q = 0.0032, noise model si1000)
 Budget    1,121 physical qubits, reliability target 50%
 
 Techniques worth trying:
@@ -43,22 +43,34 @@ Techniques worth trying:
 
 Regime comparison:
   QEM           16 qubits   reliability 0.0%   (noisy_simulation (150 shots))
-  FTQC      29,654 qubits   fits budget: False
+  FTQC  not feasible: no code distance up to d=51 meets the logical error budget (p_2q is too close to the fitted threshold)
 
 => Regime: GAP
-   QEM falls short by 50.0% reliability; FTQC overruns the budget by 28,533 qubits.
+   QEM falls short by 50.0% reliability; FTQC is not feasible.
    Best reachable within budget: d=3, reliability 0.0% (quartile 1, low).
+   FTQC across noise models: sd6 73,926, si1000 infeasible, toy 33,750.
+   Warning: p_2q is above half of at least one fitted threshold; the noise model, not the fit, dominates the uncertainty.
 ```
 
-"GAP" is a real answer, not an error: neither mitigation nor full fault tolerance
-works for this circuit within today's largest device. How much hardware would it
-take? Sweeping the budget answers that directly:
+"GAP" is a real answer, not an error. Under realistic superconducting noise
+(SI1000, fitted threshold 0.40%), a two-qubit error rate of 0.32% is too close to
+threshold for *any* surface-code distance to help this circuit. How much better
+would the hardware have to be? Sweeping the error rate answers that:
+
+![Physical qubits needed vs. two-qubit error rate](docs/error_rate_sweep.png)
+
+Partial QEC starts to work below ~0.29%, full fault tolerance below ~0.25%, and
+it gets affordable (under 20,000 qubits) only around 0.1%.
+
+On trapped-ion hardware at 0.1% the same circuit is within reach, and sweeping
+the qubit budget shows what each extra qubit buys:
 
 ![Best reachable reliability vs. physical-qubit budget](docs/budget_staircase.png)
 
-Partial error correction reaches 68% reliability at ~9,700 physical qubits, about
-a third of the cost of full fault tolerance. On 99.99%-fidelity hardware the same
-circuit needs no error correction at all (see the [tutorial](tutorial/qregime_tutorial.ipynb)).
+Partial error correction reaches 60% reliability at 2,646 physical qubits (d=7),
+40% of the cost of full fault tolerance (6,534 at d=11). On 99.99%-fidelity
+hardware the same circuit needs no error correction at all (see the
+[tutorial](tutorial/qregime_tutorial.ipynb)).
 
 ## Quickstart
 
@@ -76,8 +88,11 @@ r = qregime.decide_regime("my_circuit.qasm", hardware="superconductor_ibm",
 print(r["regime"], r["cost_physical_qubits"])
 
 qregime.recommend("my_circuit.qasm")                 # which reductions to try
-qregime.estimate_ftqc(16, tcount=3930, p_phys=0.0032) # full fault-tolerance cost
-qregime.best_within_budget(16, 3930, 0.0032, 10_000)  # best point under a hard budget
+qregime.estimate_ftqc(16, tcount=3930, p_phys=0.001,  # full fault-tolerance cost
+                      noise_model="toy")
+qregime.estimate_ftqc_band(16, 3930, 0.001)           # same, under every noise model
+qregime.best_within_budget(16, 3930, 0.001, 5_000,   # best point under a hard budget
+                           noise_model="toy")
 ```
 
 Then work through **[the tutorial](tutorial/qregime_tutorial.ipynb)** (about 2
@@ -91,10 +106,12 @@ rerun, not from a vendor service.
 
 | Result | Evidence |
 |---|---|
-| Surface-code threshold fitted from our own simulation: $p_{th} \approx 0.74\%$, consistent with the published ~1% | Stim + PyMatching, rotated surface code, `research/qec/` |
+| Surface-code threshold fitted per noise model from our own simulations: 0.40% (SI1000, superconducting), 0.85% (cheap idles, trapped ion), 0.65% (SD6, native CX) | Deltakit rotated planar code + PyMatching, `research/qec/fit_threshold_deltakit.py`; cross-checked against Stim in `examples/deltakit_crosscheck.py` |
 | **Proposition 1 (proved):** ZX-calculus cannot reduce T-count when the non-Clifford content is one layer of diagonal $Z_aZ_b$ rotations (QAOA cost layers, Ising Trotter steps) | Proof in the paper; 0% measured reduction on 24/24 QAOA instances and on a circuit derived from IBM's 2023 utility experiment |
 | **Proposition 3 (proved):** the best reliability reachable under a budget can never decrease as the budget grows, so the sweep above is provably optimal | Proof in the paper; checked numerically in `tests/test_proposition3.py` |
-| Partial QEC reaches the same reliability bar at ~1/3 the qubits of full fault tolerance on the flagship circuit | 9,734 vs 29,654 physical qubits |
+| Partial QEC reaches the same reliability bar at ~40% of the qubits of full fault tolerance on the flagship circuit (trapped ion, 0.1%) | 2,646 vs 6,534 physical qubits |
+| On superconducting noise at 0.32%, no surface code helps the flagship circuit; error correction needs p_2q below ~0.25-0.29% | `examples/error_rate_sweep.py` |
+| Audit against theory and literature: 7 theory checks (closed-form distance, Lambda = p_th/p, monotonicity, Proposition 1, ...) and 7 literature checks (Fowler 2012, Gidney et al. 2021, Google Willow 2024, Litinski 2019) | `research/audit/literature_audit.py`: 14 PASS, 0 WARN, 0 FAIL |
 | The technique recommender generalizes to circuits larger than it was calibrated on: 73.7% accuracy vs a 57.9% baseline on 19 unseen circuits of up to 32 qubits | `research/decision-layer/large_scale_*` |
 | Cheap enough to run before dispatch: profiling + recommendations take 0.06-1 s on most reference circuits, 11.6 s on the heaviest | after fixing three scaling bugs found by our own stress test (44 s before) |
 

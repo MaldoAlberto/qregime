@@ -25,28 +25,48 @@ medicion Monte Carlo real (qec_surface_code_experiment.py) -- si los tres
 coinciden en orden de magnitud, la confianza no depende de creer en ningun
 vendor.
 """
+import functools
 import json
 import math
 import os
 
-_FIT_PATH = os.path.join(os.path.dirname(__file__), "data", "threshold_fit_result.json")
+_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+
+# Modelos de ruido con ajuste propio (research/qec/fit_threshold_deltakit.py):
+#   "sd6"    depolarizante estandar de circuito (todo falla con prob. p,
+#            incluido cada qubit en reposo en cada tick)
+#   "si1000" inspirado en superconductores (2q p, 1q/idle p/10, medicion 5p, reset 2p)
+#   "toy"    Deltakit ToyNoise (2q p, 1q/idle p/10, medicion p): iones atrapados
+NOISE_MODELS = ("sd6", "si1000", "toy")
+DEFAULT_NOISE_MODEL = "sd6"
 
 
-def _load_fit():
-    if not os.path.exists(_FIT_PATH):
+@functools.cache
+def _load_fit(noise_model: str = DEFAULT_NOISE_MODEL) -> dict:
+    if noise_model not in NOISE_MODELS:
+        raise ValueError(f"modelo de ruido desconocido {noise_model!r}; opciones: {NOISE_MODELS}")
+    path = os.path.join(_DATA_DIR, f"threshold_fit_{noise_model}.json")
+    if not os.path.exists(path):
         raise RuntimeError(
-            "threshold_fit_result.json no existe -- correr primero "
-            "fit_own_threshold_model.py para generar A y p_th desde nuestros "
-            "propios datos de Stim+PyMatching."
-        )
-    return json.load(open(_FIT_PATH))
+            f"{os.path.basename(path)} no existe -- correr primero "
+            "research/qec/fit_threshold_deltakit.py para generar A y p_th.")
+    with open(path) as fh:
+        return json.load(fh)
 
 
 def physical_qubits_per_logical(d: int) -> int:
-    """Formula EMPIRICA (no de un paper): exactamente lo que
-    stim.Circuit.generated('surface_code:rotated_memory_z', distance=d)
-    usa, verificado para d en {3,5,7,9,11} contra stim.Circuit.num_qubits."""
-    return 2 * d * d + 3 * d - 1
+    """2*d^2 qubits fisicos por qubit logico.
+
+    Un parche rotado aislado usa d^2 datos + (d^2 - 1) ancillas = 2d^2 - 1
+    (verificado contra Deltakit RotatedPlanarCode y contra los qubits que
+    realmente usa stim.Circuit.generated; ver examples/deltakit_crosscheck.py).
+    Se cuenta 2d^2 por tile, la convencion de Litinski 2019 que ya usa el
+    costo de fabricas: incluye el espacio de routing para lattice surgery.
+
+    Nota historica: antes se usaba 2d^2 + 3d - 1 = stim.Circuit.num_qubits,
+    que cuenta indices de qubit SIN USAR del generador de stim (sobreconteo
+    de 3d qubits por parche, +53% en d=3)."""
+    return 2 * d * d
 
 
 def predicted_logical_error_rate(d: int, p_phys: float, fit: dict) -> float:
@@ -75,7 +95,8 @@ def estimate_open_ftqc(num_logical_qubits: int, tcount: int, p_phys: float,
                         error_budget: float = 1e-2,
                         two_qubit_gate_time_s: float = 50e-9,
                         rounds_per_tgate: int = None,
-                        verbose: bool = False) -> dict:
+                        verbose: bool = False,
+                        noise_model: str = DEFAULT_NOISE_MODEL) -> dict:
     """
     Estimador de recursos FTQC completo, sin Azure QRE.
 
@@ -99,16 +120,26 @@ def estimate_open_ftqc(num_logical_qubits: int, tcount: int, p_phys: float,
     ahorro de reuso -- limitada, eso si, a la parte que este estimador
     modela (qubits de datos), no a la parte que le falta (fabricas).
     """
-    fit = _load_fit()
+    fit = _load_fit(noise_model)
 
-    if tcount <= 0:
-        raise ValueError("tcount debe ser > 0 para este modelo (el costo se mide en compuertas T)")
+    if tcount < 0:
+        raise ValueError("tcount debe ser >= 0")
+    # tcount == 0 (circuito Clifford): no hay compuertas T que repartan el
+    # presupuesto ni que marquen el tiempo. Se modela como UNA operacion
+    # logica (cota minima, declarada en `assumptions`) en vez de fallar.
+    clifford_only = tcount == 0
+    tcount = max(tcount, 1)
 
     # presupuesto de error repartido por igual entre las tcount compuertas T
     # (simplificacion declarada: Azure QRE reparte el presupuesto entre
     # varias categorias de error de forma mas fina; aqui se reparte parejo,
     # lo cual es MAS conservador, no menos)
-    p_logical_target_per_gate = error_budget / max(tcount, 1)
+    # Cada T dura ~d rondas, y en esas rondas TODOS los parches logicos
+    # acumulan error: p_L(d) del ajuste es por parche y por d rondas (memoria
+    # rotated_memory_z con rounds=d). Hay num_logical_qubits * tcount
+    # oportunidades de fallo, no solo tcount (antes se contaba un solo parche
+    # y el error total real podia superar el presupuesto ~n veces).
+    p_logical_target_per_gate = error_budget / (max(num_logical_qubits, 1) * max(tcount, 1))
 
     d = solve_min_distance(p_phys, p_logical_target_per_gate, fit)
     infeasible_reason = None
@@ -143,14 +174,21 @@ def estimate_open_ftqc(num_logical_qubits: int, tcount: int, p_phys: float,
         "p_logical_target_per_gate": p_logical_target_per_gate,
         "cycle_time_s": cycle_time_s,
         "total_qec_rounds": total_rounds,
-        "fit_used": {"A": fit["A"], "p_th": fit["p_th"], "p_th_stderr": fit["p_th_stderr"]},
+        "fit_used": {"A": fit["A"], "p_th": fit["p_th"], "p_th_stderr": fit["p_th_stderr"],
+                     "noise_model": noise_model},
         "assumptions": [
             "compuertas T consumidas secuencialmente (sin paralelizar fabricas de estados magicos, "
             "a diferencia de Litinski 2019 -- esto da una cota SUPERIOR del tiempo real, no una estimacion optimizada)",
-            "presupuesto de error repartido por igual entre las tcount compuertas T",
+            "presupuesto de error repartido por igual entre num_logical_qubits x tcount "
+            "eventos (cada parche logico durante cada compuerta T); errores de las "
+            "fabricas de estados magicos no se incluyen",
             f"tiempo de ciclo = 6 x tiempo de compuerta de 2 qubits ({two_qubit_gate_time_s*1e9:.0f} ns)",
         ],
     }
+    if clifford_only:
+        result["assumptions"].append(
+            "tcount=0 (circuito Clifford): se modela como una sola operacion logica; "
+            "ademas es simulable clasicamente en tiempo polinomial (Gottesman-Knill)")
     if verbose:
         print(f"  [estimador propio] d={d}  qubits_fisicos={total_physical_qubits:,}  "
               f"runtime={runtime_s:.3e}s  p_logico_por_compuerta={achieved_p_logical:.2e}")
@@ -191,7 +229,8 @@ def estimate_open_ftqc_with_factories(num_logical_qubits: int, tcount: int,
                                        two_qubit_gate_time_s: float = 50e-9,
                                        rounds_per_tgate: int = None,
                                        num_factories: int = 1,
-                                       verbose: bool = False) -> dict:
+                                       verbose: bool = False,
+                                       noise_model: str = DEFAULT_NOISE_MODEL) -> dict:
     """
     Extension de estimate_open_ftqc() que SUMA el costo de fabricas de
     destilacion 15-a-1 (formula citada de Litinski 2019, ver
@@ -221,11 +260,14 @@ def estimate_open_ftqc_with_factories(num_logical_qubits: int, tcount: int,
     mas abajo con shor_like_sequential.qasm.
     """
     base = estimate_open_ftqc(num_logical_qubits, tcount, p_phys, error_budget,
-                               two_qubit_gate_time_s, rounds_per_tgate, verbose=False)
+                               two_qubit_gate_time_s, rounds_per_tgate, verbose=False,
+                               noise_model=noise_model)
     if not base["feasible"]:
         return base
 
     d = base["codeDistance"]
+    if tcount == 0:
+        num_factories = 0  # sin compuertas T no hacen falta estados magicos
     qubits_per_factory = litinski_15to1_factory_qubits(d)
     factory_qubits_total = num_factories * qubits_per_factory
 
@@ -254,7 +296,8 @@ def estimate_open_ftqc_with_factories(num_logical_qubits: int, tcount: int,
 
 
 def uncertainty_band(num_logical_qubits: int, tcount: int, p_phys: float,
-                      error_budget: float = 1e-2, n_sigma: float = 1.0) -> dict:
+                      error_budget: float = 1e-2, n_sigma: float = 1.0,
+                      noise_model: str = DEFAULT_NOISE_MODEL) -> dict:
     """
     Repite la estimacion con p_th +/- n_sigma * p_th_stderr (la incertidumbre
     REAL del ajuste a nuestros propios datos, no un numero inventado) para
@@ -262,17 +305,21 @@ def uncertainty_band(num_logical_qubits: int, tcount: int, p_phys: float,
     que permite despues distinguir una ventaja de hardware real de una
     diferencia que podria explicarse por la incertidumbre del propio ajuste.
     """
-    fit = _load_fit()
+    fit = _load_fit(noise_model)
     band = {}
-    for label, p_th_shift in [("central", 0.0), ("optimista", -n_sigma), ("pesimista", +n_sigma)]:
+    # p_th mas alto = umbral mas holgado = menor d = optimista (antes las
+    # etiquetas estaban invertidas)
+    for label, p_th_shift in [("central", 0.0), ("optimista", +n_sigma), ("pesimista", -n_sigma)]:
         shifted_fit = dict(fit)
         shifted_fit["p_th"] = fit["p_th"] + p_th_shift * fit["p_th_stderr"]
-        d = solve_min_distance(p_phys, error_budget / max(tcount, 1), shifted_fit)
+        d = solve_min_distance(p_phys, error_budget / (max(num_logical_qubits, 1) * max(tcount, 1)),
+                               shifted_fit)
+        tcount_eff = max(tcount, 1)
         if d is None:
             band[label] = {"feasible": False}
             continue
         pq = num_logical_qubits * physical_qubits_per_logical(d)
-        rounds = tcount * d
+        rounds = tcount_eff * d
         runtime = rounds * 6 * 50e-9
         band[label] = {"feasible": True, "codeDistance": d, "physicalQubits": pq, "runtime_s": runtime}
     return band

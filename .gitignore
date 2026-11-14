@@ -11,3 +11,4 @@ venv/
 *.log
 *.out
 tutorial/budget_staircase.png
+tutorial/error_rate_sweep.png
