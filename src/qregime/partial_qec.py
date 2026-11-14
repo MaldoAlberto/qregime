@@ -30,9 +30,9 @@ METODO: para cada d IMPAR de 3 a d_max, calcular:
                      abajo)
   p_logico(d)     = tasa de error logico predicha por NUESTRO ajuste
                      propio (Stim+PyMatching), no un numero de un paper
-  confiabilidad(d) = (1 - p_logico(d))^tcount -- probabilidad de que
-                     NINGUNA de las tcount operaciones propensas a error
-                     falle, la misma simplificacion de "presupuesto de
+  confiabilidad(d) = (1 - p_logico(d))^(n*tcount) -- probabilidad de que
+                     NINGUNO de los n parches logicos falle durante
+                     ninguna de las tcount compuertas T, la misma simplificacion de "presupuesto de
                      error repartido por igual entre tcount compuertas"
                      que ya declara `open_resource_estimator.py`
 
@@ -57,14 +57,15 @@ de aparentar mas certeza de la que hay.
 """
 from .resources import (
     physical_qubits_per_logical, predicted_logical_error_rate,
-    litinski_15to1_factory_qubits, _load_fit,
+    litinski_15to1_factory_qubits, _load_fit, DEFAULT_NOISE_MODEL,
 )
 
 
 def sweep_partial_qec(num_logical_qubits: int, tcount: int, p_phys: float,
                        reliability_target: float, physical_qubit_budget: int,
-                       d_max: int = 51, verbose: bool = True) -> dict:
-    fit = _load_fit()
+                       d_max: int = 51, verbose: bool = True,
+                       noise_model: str = DEFAULT_NOISE_MODEL) -> dict:
+    fit = _load_fit(noise_model)
     if p_phys >= fit["p_th"]:
         return {"feasible": False, "reason": f"p_fisico ({p_phys}) >= umbral ajustado "
                 f"({fit['p_th']:.4f}) -- ningun d ayuda, ni QEC parcial ni completo"}
@@ -77,7 +78,8 @@ def sweep_partial_qec(num_logical_qubits: int, tcount: int, p_phys: float,
         factory_qubits = litinski_15to1_factory_qubits(d)
         cost = data_qubits + factory_qubits
         p_logical = predicted_logical_error_rate(d, p_phys, fit)
-        reliability = (1 - p_logical) ** tcount
+        # todos los parches fallan independientemente en cada T (ver resources.py)
+        reliability = (1 - p_logical) ** (num_logical_qubits * tcount)
         rows.append({"d": d, "cost_qubits": cost, "p_logical_per_gate": p_logical,
                       "reliability": reliability})
         if chosen is None and reliability >= reliability_target and cost <= physical_qubit_budget:
@@ -122,7 +124,8 @@ _CONFIDENCE_QUARTILE_LABELS = [
 
 def best_feasible_within_hard_budget(num_logical_qubits: int, tcount: int, p_phys: float,
                                       physical_qubit_budget: int, d_max: int = 51,
-                                      verbose: bool = True) -> dict:
+                                      verbose: bool = True,
+                                      noise_model: str = DEFAULT_NOISE_MODEL) -> dict:
     """A diferencia de `sweep_partial_qec` (que exige un umbral de
     confiabilidad Y un presupuesto, y falla si ninguna combinacion
     cumple ambos), esta funcion responde una pregunta distinta y mas
@@ -135,7 +138,7 @@ def best_feasible_within_hard_budget(num_logical_qubits: int, tcount: int, p_phy
     respuesta cuantificada y honesta ("no es tolerante a fallas, pero
     esta en el cuartil X de confianza") en vez de un solo bit de
     pasa/no-pasa."""
-    fit = _load_fit()
+    fit = _load_fit(noise_model)
     if p_phys >= fit["p_th"]:
         return {"realizable": False, "reason": f"p_fisico >= umbral ajustado ({fit['p_th']:.4f})"}
 
@@ -148,7 +151,8 @@ def best_feasible_within_hard_budget(num_logical_qubits: int, tcount: int, p_phy
         if cost > physical_qubit_budget:
             break  # costo monotono creciente en d -- una vez que se pasa, no vuelve a caber
         p_logical = predicted_logical_error_rate(d, p_phys, fit)
-        reliability = (1 - p_logical) ** tcount
+        # todos los parches fallan independientemente en cada T (ver resources.py)
+        reliability = (1 - p_logical) ** (num_logical_qubits * tcount)
         best = {"d": d, "cost_qubits": cost, "reliability": reliability}
         d += 2
 

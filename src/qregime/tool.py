@@ -92,6 +92,9 @@ class HardwareProfile:
     connectivity: str  # "all_to_all" | "limited"
     max_hw_degree: Optional[int] = None  # requerido solo si connectivity=="limited"
     source: str = ""  # cita/procedencia del numero de p_2q, siempre declarada
+    # modelo de ruido de circuito con el que se ajusto el umbral del surface
+    # code para esta arquitectura (ver resources.NOISE_MODELS)
+    noise_model: str = "sd6"
 
     def __post_init__(self):
         if self.connectivity == "limited" and self.max_hw_degree is None:
@@ -107,17 +110,20 @@ HARDWARE_PROFILES = {
         name="Superconducting (IBM heavy-hex)",
         p_2q=0.0032, connectivity="limited", max_hw_degree=3,
         source="real FakeTorino calibration (heavy-hex, max degree 3), "
-               "used throughout the accompanying paper"),
+               "used throughout the accompanying paper",
+        noise_model="si1000"),
     "trapped_ion_quantinuum_h2": HardwareProfile(
         name="Trapped-ion Quantinuum H2",
         p_2q=0.001, connectivity="all_to_all",
         source="Quantinuum System Model H2: '56 qubits fully-connected', "
-               "published two-qubit fidelity >99.9%"),
+               "published two-qubit fidelity >99.9%",
+        noise_model="toy"),
     "trapped_ion_ionq_oxford": HardwareProfile(
         name="Trapped-ion IonQ/Oxford Ionics",
         p_2q=0.0001, connectivity="all_to_all",
         source="IonQ/Oxford Ionics, Oct. 2025: two-qubit fidelity 99.99% "
-               "via randomized benchmarking, arXiv:2510.17286"),
+               "via randomized benchmarking, arXiv:2510.17286",
+        noise_model="toy"),
 }
 
 
@@ -278,9 +284,10 @@ def analyze_circuit(qasm_path: str, hardware_profile_key: str, verbose: bool = T
     feas = structural_feasibility_generic(qasm_path, hw, verbose=verbose)
 
     est_no_reuse = estimate_open_ftqc_with_factories(
-        profile["num_qubits"], profile["tcount"], hw.p_2q)
+        profile["num_qubits"], profile["tcount"], hw.p_2q, noise_model=hw.noise_model)
     est_with_reuse = estimate_open_ftqc_with_factories(
-        profile["max_concurrent_qubits"], profile["tcount"], hw.p_2q)
+        profile["max_concurrent_qubits"], profile["tcount"], hw.p_2q,
+        noise_model=hw.noise_model)
 
     report = {
         "qasm_path": qasm_path,

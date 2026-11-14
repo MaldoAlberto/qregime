@@ -53,7 +53,7 @@ umbral de confiabilidad objetivo epsilon_target in (0,1]:
 """
 import json
 
-from .resources import estimate_open_ftqc_with_factories
+from .resources import DEFAULT_NOISE_MODEL, estimate_open_ftqc_with_factories
 from .treewidth import treewidth_simulability_certificate
 from .advisor import profile_circuit
 from .partial_qec import sweep_partial_qec
@@ -72,12 +72,17 @@ DEFAULT_PHYSICAL_QUBIT_BUDGET = 1121
 DEFAULT_RELIABILITY_TARGET = 0.5
 
 
+def _fmt(x):
+    return f"{x:,}" if isinstance(x, int) else str(x)
+
+
 def decide_regime_formal(qasm_path: str, tcount: int, num_qubits: int,
                           p_phys: float, qem_success_fraction: float,
                           error_budget: float = 1e-2,
                           reliability_target: float = DEFAULT_RELIABILITY_TARGET,
                           physical_qubit_budget: int = DEFAULT_PHYSICAL_QUBIT_BUDGET,
-                          verbose: bool = True, profile: dict = None) -> dict:
+                          verbose: bool = True, profile: dict = None,
+                          noise_model: str = DEFAULT_NOISE_MODEL) -> dict:
     # paso 0: aviso de atajo clasico (Proposiciones 1-2), consultivo, no vinculante
     tw_cert = treewidth_simulability_certificate(qasm_path, verbose=False)
     # Same duplicated-work pattern as Bug 1 (see advisor.recommend_techniques):
@@ -96,16 +101,27 @@ def decide_regime_formal(qasm_path: str, tcount: int, num_qubits: int,
     # candidato FTQC: nuestro propio estimador (con fabricas de Litinski, ya validado)
     ftqc = estimate_open_ftqc_with_factories(
         num_logical_qubits=num_qubits, tcount=tcount, p_phys=p_phys,
-        error_budget=error_budget, verbose=False,
+        error_budget=error_budget, verbose=False, noise_model=noise_model,
     )
-    cost_ftqc = ftqc["physicalQubits"]
     reliability_ftqc = 1 - error_budget  # por diseño, si es factible
-    ftqc_feasible_in_budget = cost_ftqc <= physical_qubit_budget
+    if ftqc["feasible"]:
+        cost_ftqc = ftqc["physicalQubits"]
+        ftqc_infeasible_reason = None
+        ftqc_feasible_in_budget = cost_ftqc <= physical_qubit_budget
+    else:
+        # p_fisico >= umbral (o ni d=51 alcanza): no hay costo FTQC que
+        # reportar. Antes esto tumbaba la funcion con KeyError.
+        cost_ftqc = None
+        ftqc_infeasible_reason = ftqc["reason"]
+        ftqc_feasible_in_budget = False
+    # FTQC solo es candidato si su confiabilidad de diseño alcanza el objetivo
+    # (antes se aceptaba aunque reliability_target > 1 - error_budget)
+    ftqc_meets_target = reliability_ftqc >= reliability_target
 
     feasible = []
     if qem_meets_target:
         feasible.append(("QEM", cost_qem))
-    if ftqc_feasible_in_budget:
+    if ftqc_feasible_in_budget and ftqc_meets_target:
         feasible.append(("FTQC", cost_ftqc))
 
     if feasible:
@@ -121,7 +137,7 @@ def decide_regime_formal(qasm_path: str, tcount: int, num_qubits: int,
         partial_qec = sweep_partial_qec(
             num_logical_qubits=num_qubits, tcount=tcount, p_phys=p_phys,
             reliability_target=reliability_target, physical_qubit_budget=physical_qubit_budget,
-            verbose=False,
+            verbose=False, noise_model=noise_model,
         )
         if partial_qec.get("feasible"):
             regime = f"QEC_PARCIAL (d={partial_qec['chosen_d']})"
@@ -131,7 +147,8 @@ def decide_regime_formal(qasm_path: str, tcount: int, num_qubits: int,
             cost = None
         gap_report = {
             "gap_de_confiabilidad_QEM": max(0.0, reliability_target - reliability_qem),
-            "gap_de_qubits_FTQC": max(0, cost_ftqc - physical_qubit_budget),
+            "gap_de_qubits_FTQC": (max(0, cost_ftqc - physical_qubit_budget)
+                                    if cost_ftqc is not None else None),
             "qec_parcial_mejor_intento": partial_qec.get("best_attempt"),
         }
 
@@ -145,6 +162,8 @@ def decide_regime_formal(qasm_path: str, tcount: int, num_qubits: int,
         "qem_meets_target": qem_meets_target,
         "cost_ftqc_qubits": cost_ftqc,
         "ftqc_feasible_in_budget": ftqc_feasible_in_budget,
+        "ftqc_meets_target": ftqc_meets_target,
+        "ftqc_infeasible_reason": ftqc_infeasible_reason,
         "physical_qubit_budget": physical_qubit_budget,
         "reliability_target": reliability_target,
         "chosen_regime": regime,
@@ -154,7 +173,7 @@ def decide_regime_formal(qasm_path: str, tcount: int, num_qubits: int,
     if verbose:
         flag = " [AVISO: posible atajo clasico -- verificar antes de gastar recursos cuanticos]" if classical_shortcut_flag else ""
         print(f"  {qasm_path:40s} QEM(n={cost_qem},rel={reliability_qem:.2f}) "
-              f"FTQC(n={cost_ftqc:,},factible={ftqc_feasible_in_budget}) -> {regime}{flag}")
+              f"FTQC(n={_fmt(cost_ftqc)},factible={ftqc_feasible_in_budget}) -> {regime}{flag}")
     return result
 
 

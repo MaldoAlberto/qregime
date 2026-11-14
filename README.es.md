@@ -21,11 +21,20 @@ hardware, y te dice:
 - cuál es el **régimen** más barato que cumple tu objetivo de confiabilidad, o,
   si ninguno lo cumple, **de qué tamaño es la brecha**.
 
+Con ruido superconductor realista (SI1000, umbral ajustado 0,40%), una tasa de
+error de 2 qubits de 0,32% está demasiado cerca del umbral: ningún código de
+superficie ayuda al circuito insignia. La QEC parcial empieza a servir por debajo
+de ~0,29%, la tolerancia a fallas completa por debajo de ~0,25%, y se vuelve
+asequible (menos de 20.000 qubits) solo cerca de 0,1%:
+
+![Qubits físicos necesarios vs. tasa de error de 2 qubits](docs/error_rate_sweep.png)
+
+En iones atrapados con 0,1% el mismo circuito sí está al alcance:
+
 ![Mejor confiabilidad alcanzable vs. presupuesto de qubits físicos](docs/budget_staircase.png)
 
-Para el circuito insignia del proyecto, la QEC parcial llega a 68% de
-confiabilidad con ~9.700 qubits físicos, un tercio del costo de la tolerancia a
-fallas completa. Y en hardware con 99,99% de fidelidad, el mismo circuito no
+La QEC parcial llega a 60% de confiabilidad con 2.646 qubits físicos (d=7), el 40%
+del costo de la tolerancia a fallas completa (6.534 con d=11). Y en hardware con 99,99% de fidelidad, el mismo circuito no
 necesita corrección de errores en absoluto (ver el
 [tutorial](tutorial/qregime_tutorial.ipynb)).
 
@@ -50,8 +59,9 @@ ejecución) recorre cada paso con circuitos reales.
 
 ## Qué hay detrás de los números
 
-- **Umbral del código de superficie ajustado con simulación propia**
-  ($p_{th} \approx 0,74\%$, consistente con el ~1% publicado), con Stim + PyMatching.
+- **Umbral del código de superficie ajustado con simulación propia, por modelo de ruido**:
+  0,40% (SI1000, superconductores), 0,85% (reposo barato, iones atrapados), 0,65% (SD6, CX nativo),
+  con Deltakit + PyMatching y verificado contra Stim (`examples/deltakit_crosscheck.py`).
 - **Proposición 1 (demostrada):** ZX-calculus no puede reducir el T-count
   cuando todo el contenido no-Clifford es una capa de rotaciones diagonales
   $Z_aZ_b$ (capas de costo de QAOA, pasos de Trotter de Ising). Medido: 0% de

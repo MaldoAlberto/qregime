@@ -15,7 +15,8 @@ def _fmt_int(x):
 
 def _cmd_hardware(_args):
     for key, hw in api.HARDWARE_PROFILES.items():
-        print(f"{key:28s} p_2q={hw.p_2q:<8g} connectivity={hw.connectivity:<11s} {hw.name}")
+        print(f"{key:28s} p_2q={hw.p_2q:<8g} noise={hw.noise_model:<7s} "
+              f"connectivity={hw.connectivity:<11s} {hw.name}")
     return 0
 
 
@@ -43,7 +44,7 @@ def _cmd_decide(args):
     p = r["profile"]
     print(f"\nCircuit   {args.qasm}")
     print(f"          {p['num_qubits']} qubits, {p['num_gates']} gates, T-count {p['tcount']}")
-    print(f"Hardware  {r['hardware']}  (p_2q = {r['p_2q']})")
+    print(f"Hardware  {r['hardware']}  (p_2q = {r['p_2q']}, noise model {r['noise_model']})")
     print(f"Budget    {_fmt_int(r['physical_qubit_budget'])} physical qubits, "
           f"reliability target {r['reliability_target']:.0%}\n")
 
@@ -56,7 +57,11 @@ def _cmd_decide(args):
     print("\nRegime comparison:")
     print(f"  QEM   {_fmt_int(q['cost_qubits']):>10s} qubits   reliability {q['reliability']:.1%}"
           f"   ({q['reliability_source']})")
-    print(f"  FTQC  {_fmt_int(f['cost_qubits']):>10s} qubits   fits budget: {f['fits_budget']}")
+    if f["cost_qubits"] is None:
+        print(f"  FTQC  not feasible: {f['infeasible_reason']}")
+    else:
+        print(f"  FTQC  {_fmt_int(f['cost_qubits']):>10s} qubits   fits budget: {f['fits_budget']}"
+              + ("" if f["meets_target"] else "   (design reliability below target)"))
 
     print(f"\n=> Regime: {r['regime']}", end="")
     if r["cost_physical_qubits"] is not None:
@@ -65,16 +70,26 @@ def _cmd_decide(args):
         print()
     if r["gap"]:
         g = r["gap"]
-        print(f"   QEM falls short by {g['qem_reliability_shortfall']:.1%} reliability; "
-              f"FTQC overruns the budget by {_fmt_int(g['ftqc_qubit_overrun'])} qubits.")
+        ftqc_msg = (f"FTQC overruns the budget by {_fmt_int(g['ftqc_qubit_overrun'])} qubits."
+                    if g["ftqc_qubit_overrun"] is not None else "FTQC is not feasible.")
+        print(f"   QEM falls short by {g['qem_reliability_shortfall']:.1%} reliability; {ftqc_msg}")
         best = api.best_within_budget(p["num_qubits"], max(p["tcount"], 1), r["p_2q"],
-                                      r["physical_qubit_budget"])
+                                      r["physical_qubit_budget"],
+                                      noise_model=r["noise_model"])
         if best.get("realizable"):
             print(f"   Best reachable within budget: d={best['code_distance']}, "
                   f"reliability {best['reliability']:.1%} "
                   f"(quartile {best['confidence_quartile']}, {best['confidence_label']}).")
         else:
             print(f"   {best['reason']}")
+    band = r["ftqc_noise_band"]
+    parts = ", ".join(
+        f"{m} {_fmt_int(v['physical_qubits']) if v['feasible'] else 'infeasible'}"
+        for m, v in band["per_model"].items())
+    print(f"   FTQC across noise models: {parts}.")
+    if band["near_threshold"]:
+        print("   Warning: p_2q is above half of at least one fitted threshold; "
+              "the noise model, not the fit, dominates the uncertainty.")
     if r["classical_shortcut_advisory"]:
         print("   Advisory: low treewidth and low entanglement -- check for a classical "
               "tensor-network shortcut before spending quantum resources.")

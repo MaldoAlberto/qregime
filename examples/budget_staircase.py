@@ -1,8 +1,11 @@
 """How much hardware does a circuit need before error correction pays off?
 
 Sweeps the physical-qubit budget for the paper's flagship circuit (16 logical
-qubits, T-count 3,930, p_2q = 0.32%) and plots the best reliability reachable
-at each budget. Proposition 3 of the paper guarantees this curve never goes down.
+qubits, T-count 3,930) on the trapped-ion Quantinuum H2 profile (p_2q = 0.1%,
+"toy" noise fit) and plots the best reliability reachable at each budget.
+Proposition 3 of the paper guarantees this curve never goes down. (On the
+superconducting profile, p_2q = 0.32% is too close to the SI1000 threshold for
+any distance to help; see examples/error_rate_sweep.py.)
 
     python examples/budget_staircase.py            # writes docs/budget_staircase.png
 """
@@ -15,22 +18,22 @@ import matplotlib.pyplot as plt
 
 import qregime
 
-N_LOGICAL, TCOUNT, P_PHYS = 16, 3930, 0.0032
+N_LOGICAL, TCOUNT, P_PHYS, NOISE = 16, 3930, 0.001, "toy"
 SURFACE, INK, INK_2, GRID, SERIES = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df", "#2a78d6"
 
 
 def sweep(budgets):
     out = []
     for b in budgets:
-        r = qregime.best_within_budget(N_LOGICAL, TCOUNT, P_PHYS, b)
+        r = qregime.best_within_budget(N_LOGICAL, TCOUNT, P_PHYS, b, noise_model=NOISE)
         out.append(r["reliability"] if r["realizable"] else 0.0)
     return out
 
 
 def plot(path):
-    budgets = list(range(1_000, 36_001, 100))
+    budgets = list(range(0, 8_001, 10))
     rel = sweep(budgets)
-    full = qregime.estimate_ftqc(N_LOGICAL, TCOUNT, P_PHYS)["physicalQubits"]
+    full = qregime.estimate_ftqc(N_LOGICAL, TCOUNT, P_PHYS, noise_model=NOISE)["physicalQubits"]
 
     fig, ax = plt.subplots(figsize=(8, 4.2), dpi=150)
     fig.patch.set_facecolor(SURFACE)
@@ -41,15 +44,15 @@ def plot(path):
 
     ax.axvline(1121, color=INK_2, lw=1, ls=(0, (3, 3)))
     ax.annotate("1,121 qubits\n(largest single device, IBM Condor)", xy=(1121, 0.93),
-                xytext=(1800, 0.93), color=INK_2, fontsize=8, va="top")
+                xytext=(1220, 0.93), color=INK_2, fontsize=8, va="top")
     ax.axvline(full, color=INK_2, lw=1, ls=(0, (3, 3)))
     ax.annotate(f"full fault tolerance\n{full:,} qubits", xy=(full, 0.35),
-                xytext=(full - 7600, 0.35), color=INK_2, fontsize=8, va="top")
+                xytext=(full - 1_250, 0.35), color=INK_2, fontsize=8, va="top")
     for label, y in (("low", 0.125), ("low-moderate", 0.375),
                      ("moderate", 0.625), ("high", 0.875)):
-        ax.text(35_800, y, label, color=INK_2, fontsize=8, ha="right", va="center")
+        ax.text(7_980, y, label, color=INK_2, fontsize=8, ha="right", va="center")
 
-    ax.set_xlim(0, 36_000)
+    ax.set_xlim(0, 8_000)
     ax.set_ylim(0, 1.0)
     ax.set_xlabel("physical-qubit budget", color=INK_2, fontsize=9)
     ax.set_ylabel("best reachable reliability", color=INK_2, fontsize=9)
@@ -59,7 +62,7 @@ def plot(path):
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
     ax.spines["bottom"].set_color(GRID)
-    ax.set_title("Flagship circuit: reliability reachable at each qubit budget",
+    ax.set_title("Flagship circuit on Quantinuum H2 (p = 0.1%): reliability at each qubit budget",
                  loc="left", color=INK, fontsize=11, pad=12)
     fig.tight_layout()
     fig.savefig(path, facecolor=SURFACE)
