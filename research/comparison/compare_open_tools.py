@@ -10,9 +10,15 @@ Three comparisons, each run on the example circuits in examples/circuits/:
   B. The surface-code formula of QREChem (Argonne, arXiv:2404.16351),
      p_L = 0.1 (100 p)^((d+1)/2), plugged into qregime's estimator.
   C. The QEM side vs. Mitiq (Unitary Foundation): zero-noise extrapolation on
-     the same noisy simulation qregime uses for its QEM column.
+     the same noise model qregime uses for its QEM column. Each circuit U is
+     run as its mirror U U^dagger, so the ideal output is |0...0> and success
+     is P(0...0); the small examples spread their ideal output over every
+     basis state, which makes a plain success probability uninformative. The
+     mirror has twice the CX count of U. Only circuits with at most 12 qubits,
+     simulated as exact density matrices (no shot noise): noisy statevector
+     sampling of the 16-18 qubit circuits takes hours.
 
-Run (about 3-5 minutes):
+Run (about 5 minutes):
 
     pip install -e ".[compare]"
     python research/comparison/compare_open_tools.py
@@ -167,41 +173,38 @@ def section_qrechem():
 
 
 # --------------------------------------------------------------- C. Mitiq ZNE
-def section_mitiq(shots=2000, repeats=3):
+def section_mitiq(max_qubits=12, repeats=3):
     from mitiq import zne
     from mitiq.zne.inference import LinearFactory, RichardsonFactory
     from mitiq.zne.scaling import fold_gates_at_random
     from qiskit import QuantumCircuit, transpile
-    from qiskit.quantum_info import Statevector
     from qiskit_aer import AerSimulator
     from qiskit_aer.noise import NoiseModel, depolarizing_error
 
-    print(f"\nC. QEM: qregime's raw success vs. Mitiq ZNE ({shots} shots per circuit, {repeats} repeats)")
+    print(f"\nC. QEM: qregime's raw success vs. Mitiq ZNE (exact density matrix, "
+          f"<= {max_qubits} qubits, {repeats} random foldings)")
     rows = []
     for name in NAMES:
         path = os.path.join(CIRCUITS, f"{name}.qasm")
         qc = QuantumCircuit.from_qasm_file(path)
-        if qc.num_qubits > 18:
+        if qc.num_qubits > max_qubits:
+            print(f"    {name:24s} skipped: {qc.num_qubits} qubits > {max_qubits}")
             continue
-        qc = transpile(qc, basis_gates=["u", "cx"], optimization_level=0)
-        probs = Statevector.from_instruction(qc).probabilities()
-        support = set(np.nonzero(probs > 1e-9)[0].tolist())
-        if len(support) / 2 ** qc.num_qubits > 0.5:
-            continue  # success metric uninformative, qregime uses its proxy here too
+        qc.remove_final_measurements()
+        qc = transpile(qc.compose(qc.inverse()), basis_gates=["u", "cx"],
+                       optimization_level=0)  # mirror circuit U U^dagger
+        support = {0}  # ideal output of the mirror is |0...0>
         for key in ("superconductor_ibm", "trapped_ion_quantinuum_h2"):
             hw = qregime.HARDWARE_PROFILES[key]
             noise = NoiseModel()
             noise.add_all_qubit_quantum_error(depolarizing_error(hw.p_2q, 2), ["cx"])
-            sim = AerSimulator(method="statevector", noise_model=noise)
-            seed = [0]
+            sim = AerSimulator(method="density_matrix", noise_model=noise)
 
             def execute(circ):
                 c = circ.copy()
-                c.measure_all()
-                seed[0] += 1
-                counts = sim.run(c, shots=shots, seed_simulator=seed[0]).result().get_counts()
-                ok = sum(v for b, v in counts.items() if int(b.replace(" ", ""), 2) in support)
-                return ok / shots
+                c.save_probabilities()
+                p = sim.run(c).result().data()["probabilities"]
+                return float(sum(p[i] for i in support))
 
             raw, lin, rich = [], [], []
             for _ in range(repeats):
@@ -210,15 +213,14 @@ def section_mitiq(shots=2000, repeats=3):
                                                 scale_noise=fold_gates_at_random))
                 rich.append(zne.execute_with_zne(qc, execute, factory=RichardsonFactory([1, 2, 3]),
                                                  scale_noise=fold_gates_at_random))
-            row = {"circuit": name, "hardware": key, "p_2q": hw.p_2q,
+            row = {"circuit": name, "mirror": True, "hardware": key, "p_2q": hw.p_2q,
                    "two_qubit_gates": qc.count_ops().get("cx", 0),
                    "proxy": (1 - hw.p_2q) ** qc.count_ops().get("cx", 0),
                    "raw_mean": float(np.mean(raw)), "raw_std": float(np.std(raw)),
                    "zne_linear_mean": float(np.mean(lin)), "zne_linear_std": float(np.std(lin)),
                    "zne_richardson_mean": float(np.mean(rich)),
                    "zne_richardson_std": float(np.std(rich)),
-                   "ideal": 1.0, "shots_per_estimate_raw": shots,
-                   "shots_per_estimate_zne": 3 * shots}
+                   "ideal": 1.0, "simulation": "exact density matrix"}
             rows.append(row)
             print(f"    {name:24s} {key:27s} cx={row['two_qubit_gates']:4d}  proxy {row['proxy']:.3f}  "
                   f"raw {row['raw_mean']:.3f}+/-{row['raw_std']:.3f}  "
