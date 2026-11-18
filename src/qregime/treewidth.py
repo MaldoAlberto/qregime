@@ -76,12 +76,16 @@ disponibles, un limite superior valido del treewidth real.
 import networkx as nx
 from networkx.algorithms.approximation import treewidth_min_degree, treewidth_min_fill_in
 
+from ._qasm import load_pyzx
 from .hypergraph import CircuitHypergraph
-import pyzx as zx
 
 
-def treewidth_simulability_certificate(qasm_path: str, verbose: bool = True) -> dict:
-    circuit = zx.Circuit.from_qasm_file(qasm_path).to_basic_gates()
+def treewidth_simulability_certificate(qasm_path: str, verbose: bool = True,
+                                       circuit=None) -> dict:
+    """``circuit``: the pyzx circuit (basic gates) already parsed from
+    ``qasm_path``, to skip parsing the file again."""
+    if circuit is None:
+        circuit = load_pyzx(qasm_path).to_basic_gates()
     hg = CircuitHypergraph(circuit)
     ig = hg.interaction_graph()
     n = ig.number_of_nodes()

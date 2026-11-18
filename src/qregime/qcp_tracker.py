@@ -40,6 +40,8 @@ estan en superposicion -- el caso real de uso, p.ej. dentro de Shor).
 import numpy as np
 import pyzx as zx
 
+from ._qasm import load_pyzx
+
 
 def gate_matrix(gate_type: str, phase=None, adjoint=False):
     """Matriz unitaria de 1 qubit para los tipos de compuerta relevantes."""
@@ -260,7 +262,7 @@ def run_tracker(qasm_path, n_pcm=4, superpose_inputs=True, circuit=None):
     comportamiento anterior (parsear desde `qasm_path`) para no romper
     a quien llame a `run_tracker()` de forma independiente."""
     if circuit is None:
-        circuit = zx.Circuit.from_qasm_file(qasm_path).to_basic_gates()
+        circuit = load_pyzx(qasm_path).to_basic_gates()
     n = circuit.qubits
     tracker = BoundedQCPTracker(n, n_pcm=n_pcm)
 

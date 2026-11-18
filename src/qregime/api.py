@@ -21,7 +21,7 @@ import os
 import tempfile
 from typing import Optional
 
-from .advisor import profile_circuit, recommend_techniques
+from .advisor import profile_circuit, profile_circuit_and_parse, recommend_techniques
 from .partial_qec import best_feasible_within_hard_budget
 from .regime import (
     DEFAULT_PHYSICAL_QUBIT_BUDGET,
@@ -272,7 +272,7 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
 
 def _decide_regime(qasm_path, hw, physical_qubit_budget, reliability_target,
                    qem_success_fraction, shots):
-    prof = profile_circuit(qasm_path)
+    prof, circuit = profile_circuit_and_parse(qasm_path)
 
     proxy = (1 - hw.p_2q) ** prof["two_qubit_count"]
     if qem_success_fraction is not None:
@@ -301,7 +301,7 @@ def _decide_regime(qasm_path, hw, physical_qubit_budget, reliability_target,
         p_phys=hw.p_2q, qem_success_fraction=qem_success_fraction,
         reliability_target=reliability_target,
         physical_qubit_budget=physical_qubit_budget,
-        verbose=False, profile=prof, noise_model=hw.noise_model)
+        verbose=False, profile=prof, noise_model=hw.noise_model, circuit=circuit)
 
     regime = raw["chosen_regime"]
     if regime.startswith("QEC_PARCIAL"):

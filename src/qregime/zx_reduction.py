@@ -10,6 +10,7 @@ T-count "as compiled" del circuito original.
 
 import pyzx as zx
 
+from ._qasm import load_pyzx
 from .hypergraph import CircuitHypergraph, resource_report
 
 
@@ -59,7 +60,7 @@ if __name__ == "__main__":
     import sys
 
     path = sys.argv[1] if len(sys.argv) > 1 else "test_circuit.qasm"
-    circuit = zx.Circuit.from_qasm_file(path)
+    circuit = load_pyzx(path)
 
     print(f"Reduciendo {path} vía ZX-calculus...")
     before, after, reduced_circuit = compare_before_after(circuit)

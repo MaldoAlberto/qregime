@@ -11,6 +11,8 @@ temporal de aplicación (necesario para calcular profundidad).
 import pyzx as zx
 import networkx as nx
 
+from ._qasm import load_pyzx
+
 
 def gate_qubits(gate):
     """Extrae el conjunto de qubits sobre los que actúa una compuerta de pyzx."""
@@ -92,12 +94,15 @@ class CircuitHypergraph:
 
 
 def load_qasm_circuit(path: str) -> zx.Circuit:
-    return zx.Circuit.from_qasm_file(path)
+    return load_pyzx(path)
 
 
-def resource_report(circuit: zx.Circuit) -> dict:
-    """Perfil de métricas de recursos: profundidad, compuertas, T-count."""
-    hg = CircuitHypergraph(circuit)
+def resource_report(circuit: zx.Circuit, hypergraph: "CircuitHypergraph" = None) -> dict:
+    """Perfil de métricas de recursos: profundidad, compuertas, T-count.
+
+    ``hypergraph``: a :class:`CircuitHypergraph` already built from this same
+    ``circuit``, to avoid building it twice."""
+    hg = hypergraph if hypergraph is not None else CircuitHypergraph(circuit)
     total_depth, two_qubit_depth = hg.compute_depth_metrics()
     stats = circuit.stats_dict()
 

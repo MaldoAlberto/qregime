@@ -18,10 +18,10 @@ warnings.filterwarnings("ignore")
 import collections
 
 import networkx as nx
-import pyzx as zx
 from qiskit import QuantumCircuit as _QiskitCircuit
 from qiskit.quantum_info import Statevector as _Statevector, partial_trace as _partial_trace, entropy as _entropy
 
+from ._qasm import load_pyzx
 from .hypergraph import CircuitHypergraph, resource_report
 from .qcp_tracker import run_tracker
 from .sparsifiability import spectral_sparsifiability
@@ -47,7 +47,7 @@ _NATIVE_DIAGONAL_TWO_QUBIT_GATES = {"rzz", "cp", "crz", "cu1"}
 # importar theta.
 
 
-def _zz_cost_operator_motif_fraction(qasm_path: str) -> float:
+def _zz_cost_operator_motif_fraction(qasm_path: str, qc=None) -> float:
     """GENERALIZACION (v3, esta sesion) de lo que originalmente se llamo
     la firma "QAOA": el mecanismo real que hace que ZX-calculus no reduzca
     nada no es "es QAOA" -- es que el circuito implementa una unica CAPA
@@ -83,8 +83,11 @@ def _zz_cost_operator_motif_fraction(qasm_path: str) -> float:
     aqui.
 
     Devuelve la fraccion de aristas del grafo de interaccion que SI
-    exhiben alguna de las dos formas (0.0 si no hay ninguna)."""
-    qc = _QiskitCircuit.from_qasm_file(qasm_path)
+    exhiben alguna de las dos formas (0.0 si no hay ninguna).
+
+    ``qc``: the circuit already parsed with Qiskit, to skip re-parsing."""
+    if qc is None:
+        qc = _QiskitCircuit.from_qasm_file(qasm_path)
     data = qc.data
     motif_edges = set()
     total_two_qubit_edges = set()
@@ -128,7 +131,7 @@ def _zz_cost_operator_motif_fraction(qasm_path: str) -> float:
     return len(motif_edges) / len(total_two_qubit_edges)
 
 
-def _qaoa_repeated_angle_signature(qasm_path: str) -> bool:
+def _qaoa_repeated_angle_signature(qasm_path: str, qc=None) -> bool:
     """Resuelve la causa raiz del falso positivo reportado sobre
     `shor_like_sequential.qasm`: el patron `qaoa_like_pattern` original
     solo miraba forma del grafo (grado maximo, dispersion espectral), y
@@ -145,8 +148,11 @@ def _qaoa_repeated_angle_signature(qasm_path: str) -> bool:
     compuertas parametrizadas de 2 qubits -- la firma real.
     Devuelve False (no hay firma QAOA posible) si el circuito no usa
     NINGUNA compuerta de 2 qubits parametrizada; si usa alguna, True solo
-    si un unico angulo domina (>=30% de esas instancias)."""
-    qc = _QiskitCircuit.from_qasm_file(qasm_path)
+    si un unico angulo domina (>=30% de esas instancias).
+
+    ``qc``: the circuit already parsed with Qiskit, to skip re-parsing."""
+    if qc is None:
+        qc = _QiskitCircuit.from_qasm_file(qasm_path)
     relevant_gate_names = _PARAMETRIZED_TWO_QUBIT_GATES | _PARAMETRIZED_SINGLE_QUBIT_GATES_IN_ZZ_DECOMPOSITION
     angles = []
     for instr in qc.data:
@@ -174,7 +180,7 @@ _MAX_QUBITS_FOR_EXACT_ENTANGLEMENT_PROBE = 20
 # antes de llegar a esa degradacion.
 
 
-def _final_state_entanglement_fraction(qasm_path: str):
+def _final_state_entanglement_fraction(qasm_path: str, qc=None):
     """Version barata, de UN SOLO PUNTO (solo el estado final, no la curva
     completa de crecimiento por profundidad) de la metrica implementada y
     validada en `entanglement_growth.py` -- ver ese archivo para la
@@ -201,8 +207,11 @@ def _final_state_entanglement_fraction(qasm_path: str):
 
     Devuelve None (degradacion con gracia, no un error) para circuitos por
     encima de `_MAX_QUBITS_FOR_EXACT_ENTANGLEMENT_PROBE` qubits, donde el
-    statevector exacto deja de ser practico."""
-    qc = _QiskitCircuit.from_qasm_file(qasm_path)
+    statevector exacto deja de ser practico.
+
+    ``qc``: the circuit already parsed with Qiskit, to skip re-parsing."""
+    if qc is None:
+        qc = _QiskitCircuit.from_qasm_file(qasm_path)
     n = qc.num_qubits
     if n < 2 or n > _MAX_QUBITS_FOR_EXACT_ENTANGLEMENT_PROBE:
         return None
@@ -217,9 +226,18 @@ def _final_state_entanglement_fraction(qasm_path: str):
 
 
 def profile_circuit(qasm_path: str, n_pcm_probe: int = 4):
-    circuit = zx.Circuit.from_qasm_file(qasm_path).to_basic_gates()
+    return profile_circuit_and_parse(qasm_path, n_pcm_probe)[0]
+
+
+def profile_circuit_and_parse(qasm_path: str, n_pcm_probe: int = 4):
+    """:func:`profile_circuit`, plus the parsed pyzx circuit (basic gates),
+    so callers that need it again (e.g. the treewidth certificate) do not
+    parse the file a second time. Each file is parsed once with pyzx and
+    once with Qiskit."""
+    circuit = load_pyzx(qasm_path).to_basic_gates()
+    qc = _QiskitCircuit.from_qasm_file(qasm_path)
     hg = CircuitHypergraph(circuit)
-    metrics = resource_report(circuit)
+    metrics = resource_report(circuit, hypergraph=hg)
     ig = hg.interaction_graph()
 
     degrees = [d for _, d in ig.degree()]
@@ -292,10 +310,10 @@ def profile_circuit(qasm_path: str, n_pcm_probe: int = 4):
         "qubit_reuse_potential_fraction": 1 - (max_concurrent_qubits / metrics["num_qubits"]) if metrics["num_qubits"] else 0.0,
         "qcp_known_fraction_at_probe": qcp["known_fraction"],
         "spectral_sparsifiability": sparsifiability,
-        "qaoa_repeated_angle_signature": _qaoa_repeated_angle_signature(qasm_path),
-        "zz_cost_operator_motif_fraction": _zz_cost_operator_motif_fraction(qasm_path),
-        "final_state_entanglement_fraction": _final_state_entanglement_fraction(qasm_path),
-    }
+        "qaoa_repeated_angle_signature": _qaoa_repeated_angle_signature(qasm_path, qc),
+        "zz_cost_operator_motif_fraction": _zz_cost_operator_motif_fraction(qasm_path, qc),
+        "final_state_entanglement_fraction": _final_state_entanglement_fraction(qasm_path, qc),
+    }, circuit
 
 
 def recommend_techniques(qasm_path: str, profile: dict = None):

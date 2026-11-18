@@ -82,9 +82,13 @@ def decide_regime_formal(qasm_path: str, tcount: int, num_qubits: int,
                           reliability_target: float = DEFAULT_RELIABILITY_TARGET,
                           physical_qubit_budget: int = DEFAULT_PHYSICAL_QUBIT_BUDGET,
                           verbose: bool = True, profile: dict = None,
-                          noise_model: str = DEFAULT_NOISE_MODEL) -> dict:
+                          noise_model: str = DEFAULT_NOISE_MODEL,
+                          circuit=None) -> dict:
+    # ``circuit``: the pyzx circuit (basic gates) already parsed from
+    # ``qasm_path``, passed on to the treewidth certificate so it does not
+    # parse the file again.
     # paso 0: aviso de atajo clasico (Proposiciones 1-2), consultivo, no vinculante
-    tw_cert = treewidth_simulability_certificate(qasm_path, verbose=False)
+    tw_cert = treewidth_simulability_certificate(qasm_path, verbose=False, circuit=circuit)
     # Same duplicated-work pattern as Bug 1 (see advisor.recommend_techniques):
     # reuse a profile the caller already computed instead of re-parsing.
     prof = profile if profile is not None else profile_circuit(qasm_path)
