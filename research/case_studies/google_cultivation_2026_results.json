@@ -1,0 +1,70 @@
+{
+ "source": "arXiv:2512.13908 (Science, 15 Oct 2026)",
+ "inputs": {
+  "t_error_measured": 0.0001,
+  "keep_fraction": 0.08,
+  "p_sim_si1000": 0.0023,
+  "n_logical": 16,
+  "tcount": 3930,
+  "error_budget": 0.01
+ },
+ "t_state": {
+  "t_error_needed_for_1pct_budget": 2.5445292620865143e-06,
+  "gap_factor_vs_measured": 39.3,
+  "circuit_success_from_T_errors_alone_at_measured": 0.6750154825172567,
+  "p_needed_for_cultivation_alone_p3_scaling": 0.0006764935381127794,
+  "one_15to1_round_on_cultivated_inputs_error": 3.500000000000001e-11,
+  "attempts_per_accepted_state": 12.5,
+  "cultivation_qubits": 14,
+  "qregime_ftqc_at_p_sim_si1000": {
+   "feasible": true,
+   "codeDistance": 45,
+   "physicalQubits": 109350,
+   "physicalQubitsForFactories": 44550,
+   "reason": null
+  },
+  "litinski_15to1_factory_qubits_at_that_d": 44550
+ },
+ "leakage_scan": [
+  {
+   "pL": 0.0,
+   "shots": 100000,
+   "fails": 1089,
+   "p_L": 0.01089,
+   "stderr": 0.0003281982312566599,
+   "factor_vs_no_leakage": 1.0
+  },
+  {
+   "pL": 0.0001,
+   "shots": 100000,
+   "fails": 1422,
+   "p_L": 0.01422,
+   "stderr": 0.00037440341344597807,
+   "factor_vs_no_leakage": 1.305785123966942
+  },
+  {
+   "pL": 0.0003,
+   "shots": 100000,
+   "fails": 2040,
+   "p_L": 0.0204,
+   "stderr": 0.00044703288469641697,
+   "factor_vs_no_leakage": 1.8732782369146006
+  },
+  {
+   "pL": 0.001,
+   "shots": 100000,
+   "fails": 4492,
+   "p_L": 0.04492,
+   "stderr": 0.0006549976610645263,
+   "factor_vs_no_leakage": 4.124885215794307
+  },
+  {
+   "pL": 0.0023,
+   "shots": 100000,
+   "fails": 10305,
+   "p_L": 0.10305,
+   "stderr": 0.0009614088490335421,
+   "factor_vs_no_leakage": 9.462809917355372
+  }
+ ]
+}

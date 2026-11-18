@@ -1,0 +1,133 @@
+{
+ "n_logical": 16,
+ "tcount": 3930,
+ "p_2q": 0.0016,
+ "models": {
+  "qregime_si1000": {
+   "fit": {
+    "A": 0.0588551565667522,
+    "p_th": 0.004042349237926711
+   },
+   "ftqc": {
+    "feasible": true,
+    "codeDistance": 27,
+    "physicalQubits": 39366,
+    "physicalQubitsForFactories": 16038,
+    "reason": null
+   },
+   "best_within_budget": {
+    "10000": {
+     "realizable": true,
+     "code_distance": 13,
+     "cost_physical_qubits": 9126,
+     "reliability": 0.0035787627548439353,
+     "confidence_quartile": 1,
+     "confidence_label": "low",
+     "note": "Not fault tolerance: the best point this budget allows, reported with its actual confidence, not rounded up."
+    },
+    "100000": {
+     "realizable": true,
+     "code_distance": 43,
+     "cost_physical_qubits": 99846,
+     "reliability": 0.999994835939152,
+     "confidence_quartile": 4,
+     "confidence_label": "high",
+     "note": "Not fault tolerance: the best point this budget allows, reported with its actual confidence, not rounded up."
+    },
+    "1000000": {
+     "realizable": true,
+     "code_distance": 51,
+     "cost_physical_qubits": 140454,
+     "reliability": 0.9999998732514763,
+     "confidence_quartile": 4,
+     "confidence_label": "high",
+     "note": "Not fault tolerance: the best point this budget allows, reported with its actual confidence, not rounded up."
+    }
+   }
+  },
+  "deltakit_median": {
+   "fit": {
+    "A": 0.73439004136567,
+    "p_th": 0.010360528307840981
+   },
+   "ftqc": {
+    "feasible": true,
+    "codeDistance": 17,
+    "physicalQubits": 15606,
+    "physicalQubitsForFactories": 6358,
+    "reason": null
+   },
+   "best_within_budget": {
+    "10000": {
+     "realizable": true,
+     "code_distance": 13,
+     "cost_physical_qubits": 9126,
+     "reliability": 0.9077919750964074,
+     "confidence_quartile": 4,
+     "confidence_label": "high",
+     "note": "Not fault tolerance: the best point this budget allows, reported with its actual confidence, not rounded up."
+    },
+    "100000": {
+     "realizable": true,
+     "code_distance": 43,
+     "cost_physical_qubits": 99846,
+     "reliability": 1.0,
+     "confidence_quartile": 4,
+     "confidence_label": "high",
+     "note": "Not fault tolerance: the best point this budget allows, reported with its actual confidence, not rounded up."
+    },
+    "1000000": {
+     "realizable": true,
+     "code_distance": 51,
+     "cost_physical_qubits": 140454,
+     "reliability": 1.0,
+     "confidence_quartile": 4,
+     "confidence_label": "high",
+     "note": "Not fault tolerance: the best point this budget allows, reported with its actual confidence, not rounded up."
+    }
+   }
+  },
+  "measured_ml": {
+   "fit": {
+    "A": 0.08364895656130955,
+    "p_th": 0.002440175929120703
+   },
+   "ftqc": {
+    "feasible": false,
+    "codeDistance": null,
+    "physicalQubits": null,
+    "physicalQubitsForFactories": null,
+    "reason": "no code distance up to d=51 meets the logical error budget (p_2q is too close to the fitted threshold)"
+   },
+   "best_within_budget": {
+    "10000": {
+     "realizable": true,
+     "code_distance": 13,
+     "cost_physical_qubits": 9126,
+     "reliability": 5.149955264093371e-120,
+     "confidence_quartile": 1,
+     "confidence_label": "low",
+     "note": "Not fault tolerance: the best point this budget allows, reported with its actual confidence, not rounded up."
+    },
+    "100000": {
+     "realizable": true,
+     "code_distance": 43,
+     "cost_physical_qubits": 99846,
+     "reliability": 0.6139015063498089,
+     "confidence_quartile": 3,
+     "confidence_label": "moderate",
+     "note": "Not fault tolerance: the best point this budget allows, reported with its actual confidence, not rounded up."
+    },
+    "1000000": {
+     "realizable": true,
+     "code_distance": 51,
+     "cost_physical_qubits": 140454,
+     "reliability": 0.9137604150606313,
+     "confidence_quartile": 4,
+     "confidence_label": "high",
+     "note": "Not fault tolerance: the best point this budget allows, reported with its actual confidence, not rounded up."
+    }
+   }
+  }
+ }
+}
