@@ -1,4 +1,4 @@
-# Case studies: two 2026 hardware results through qregime and Deltakit
+# Case studies: 2026 hardware results through qregime and Deltakit
 
 Two experiments published in October 2026, rebuilt with Deltakit and fed
 into qregime's regime decision:
@@ -15,6 +15,7 @@ the numbers the papers state; each input below says where it comes from.
 | [`ibm_nighthawk_2026.py`](ibm_nighthawk_2026.py) | `ibm_nighthawk_2026_results.json` (Deltakit memories, about 6 min) |
 | [`ibm_nighthawk_2026_projection.py`](ibm_nighthawk_2026_projection.py) | `ibm_nighthawk_2026_projection.json` (qregime, seconds) |
 | [`google_cultivation_2026.py`](google_cultivation_2026.py) | `google_cultivation_2026_results.json` (qregime + Deltakit, under 1 min) |
+| [`calibrated_qec.py`](calibrated_qec.py) | `calibrated_qec_results.json` (Deltakit + Stim + PyMatching on qregime calibrations, about 14 min) |
 
 The circuit used for the projections is qregime's flagship circuit:
 16 logical qubits, T-count 3,930, 1% error budget.
@@ -148,6 +149,51 @@ leakage, absent from its model, may explain it. A secondary summary puts the
 excess at about 7 times (not verified against the paper's text). In
 Deltakit, a leakage rate of about 1.5×10⁻³, comparable to p, produces a
 factor of that size. Leakage is a plausible cause, not a demonstrated one.
+
+## 3. Are qregime's per-qubit calibrations realistic for QEC?
+
+qregime's device calibrations agree with each vendor's own noise simulator
+within 0.005 on small circuits (`docs/calibrations.md`). Section 1 showed
+that a *median* calibration is about 4 times too optimistic in Lambda.
+[`calibrated_qec.py`](calibrated_qec.py) asks whether per-qubit data
+closes that gap. It builds Z-memory surface codes with Deltakit, places
+them on the device's real qubits with qregime's noise-aware layout, adds
+circuit noise qubit by qubit from the calibration (gate depolarizing
+matched to each gate's average error, readout flips, Pauli-twirled T1/T2
+idling for each layer's duration), and decodes with MWPM over 3, 5, 9 and
+13 rounds.
+
+| Device (calibration) | Median model | Per-qubit | Per-qubit + coherent CZ error | Measured |
+|---|---|---|---|---|
+| Google Willow (`google_willow`, 2024-08-16), d = 3, 5, 7 | 2.24 | 1.78 | 1.47 | 2.14 ± 0.02 (spec sheet, neural-network decoder) |
+| IBM Nighthawk (`ibm_miami`, 2026-04-17), d = 3, 6 | 4.09 | 3.03 | n/a | 1.68 (ibm_phoenix, exact ML decoder) |
+
+Error per round (per-qubit model): Willow 0.57%, 0.38%, 0.18% at d = 3,
+5, 7; Nighthawk 0.62% and 0.12% at d = 3 and 6.
+
+What this shows:
+
+- **IBM: per-qubit data moves the prediction the right way but not far
+  enough.** Lambda falls from 4.1 to 3.0; the measured 1.68 is still well
+  below. In log terms the per-qubit tails explain about a third of the gap
+  between the median model and the measurement. The rest is what section 1
+  pointed to: leakage, correlated errors, drift. Caveat: `ibm_miami` is
+  another Nighthawk than the measured `ibm_phoenix` (no public snapshot),
+  with a worse median CZ error (3.0e-3 vs 1.6e-3).
+- **Google: the per-qubit model is pessimistic, not optimistic.** It gives
+  1.78 against a measured 2.14, and adding Google's coherent CZ error as
+  Pauli noise lowers it to 1.47. Likely reasons: the 2024-08-16 snapshot
+  may not be the chip or day of the measured experiment; d = 7 uses 97 of
+  the 105 qubits, so bad qubits cannot be avoided; MWPM decodes worse than
+  Google's neural-network decoder; no dynamical decoupling during
+  measurement; Pauli-twirling a coherent error that the hardware partly
+  calibrates away. The median model's 2.24 matches the measurement, but
+  for the wrong reasons.
+- **So for QEC the calibrations give Lambda within a factor of about 2 of
+  the measurement, in either direction.** That is useful for choosing
+  between devices and for an order-of-magnitude cost, not as a bound. For
+  QEC cost, a measured Lambda should replace the calibration-derived one
+  whenever one exists (as section 1 does).
 
 ## Caveats
 
