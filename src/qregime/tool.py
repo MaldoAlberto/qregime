@@ -122,6 +122,24 @@ HARDWARE_PROFILES = {
         source="Quantinuum System Model H2: '56 qubits fully-connected', "
                "published two-qubit fidelity >99.9%",
         noise_model="toy", calibration="quantinuum_h2_2"),
+    "superconductor_google_willow": HardwareProfile(
+        name="Superconducting (Google Willow, square grid)",
+        p_2q=0.0033, connectivity="limited", max_hw_degree=4,
+        source="Google Willow spec sheet (Dec 9, 2024), chip 1: mean simultaneous CZ "
+               "error 0.33%, 105 qubits, 4-way typical connectivity",
+        noise_model="si1000", calibration="google_willow"),
+    "superconductor_iqm_garnet": HardwareProfile(
+        name="Superconducting (IQM Garnet, square lattice)",
+        p_2q=0.005, connectivity="limited", max_hw_degree=4,
+        source="Abdurakhimov et al., arXiv:2408.12433: IQM Garnet, 20 qubits on a "
+               "square lattice, median CZ error 5e-3",
+        noise_model="si1000", calibration="iqm_garnet"),
+    "trapped_ion_ionq_forte": HardwareProfile(
+        name="Trapped-ion IonQ Forte",
+        p_2q=0.0046, connectivity="all_to_all",
+        source="Chen et al., arXiv:2308.05071: IonQ Forte, 30 all-to-all qubits, "
+               "median two-qubit DRB error 46.4e-4",
+        noise_model="toy", calibration="ionq_forte"),
     "trapped_ion_ionq_oxford": HardwareProfile(
         name="Trapped-ion IonQ/Oxford Ionics",
         p_2q=0.0001, connectivity="all_to_all",

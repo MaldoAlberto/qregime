@@ -16,7 +16,8 @@ def _fmt_int(x):
 def _cmd_hardware(_args):
     for key, hw in api.HARDWARE_PROFILES.items():
         print(f"{key:28s} p_2q={hw.p_2q:<8g} noise={hw.noise_model:<7s} "
-              f"connectivity={hw.connectivity:<11s} {hw.name}")
+              f"connectivity={hw.connectivity:<11s} calibration={hw.calibration or '-':<16s} "
+              f"{hw.name}")
     return 0
 
 

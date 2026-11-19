@@ -87,7 +87,8 @@ r = qregime.decide_regime("my_circuit.qasm", hardware="superconductor_ibm",
                           physical_qubit_budget=1121, reliability_target=0.5)
 print(r["regime"], r["cost_physical_qubits"])
 # up to 10 qubits, the QEM reliability comes from the profile's device
-# calibration (ibm_torino, quantinuum_h2_2) or your own JSON file; see
+# calibration (IBM Torino, Google Willow, IQM Garnet, Quantinuum H2-2,
+# IonQ Forte) or your own JSON file; see
 # docs/calibrations.md. use_calibration=False keeps the depolarizing model.
 print(r["qem"]["mitigation"]["total_shots"])         # shots ZNE needs for +/-0.01
 qregime.decide_regime("small.qasm", calibration="my_device.json")

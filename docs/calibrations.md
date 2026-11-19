@@ -16,12 +16,47 @@ qregime reads OpenQASM 2 itself (`qregime.circuit`) and simulates with numpy
 
 | Name | Device | Source | Used by profile |
 |---|---|---|---|
-| `ibm_torino` | IBM Torino, 133 qubits, heavy-hex, CZ | `qiskit-ibm-runtime` `FakeTorino` snapshot, exported with [`research/calibrations/export_qiskit_backend.py`](../research/calibrations/export_qiskit_backend.py) | `superconductor_ibm` |
+| `ibm_torino` | IBM Torino, 133 qubits, heavy-hex, CZ | `qiskit-ibm-runtime` `FakeTorino` snapshot, exported with [`export_qiskit_backend.py`](../research/calibrations/export_qiskit_backend.py) | `superconductor_ibm` |
+| `google_willow` | Google Willow, 105 qubits, square grid, CZ | Google's calibration snapshot `willow_pink_d7v1-2024_08_16` bundled with `cirq-google`, converted as in `cirq_google.engine.noise_properties_from_calibration` by [`export_cirq_google.py`](../research/calibrations/export_cirq_google.py); includes the coherent fSim error per coupler | `superconductor_google_willow` |
+| `iqm_garnet` | IQM Garnet, 20 qubits, square lattice, CZ | `IQMFakeGarnet` error profile in `iqm-client`, exported with [`export_iqm_fake.py`](../research/calibrations/export_iqm_fake.py) | `superconductor_iqm_garnet` |
 | `quantinuum_h2_2` | Quantinuum H2-2, 56 qubits, all-to-all, ZZ | Quantinuum [hardware-specifications](https://github.com/Quantinuum/quantinuum-hardware-specifications) repository, emulator parameters, H2-2 2024-12-06 | `trapped_ion_quantinuum_h2` |
+| `ionq_forte` | IonQ Forte, 30 qubits, all-to-all, ZZ | Chen et al., arXiv:2308.05071 (median DRB errors, SPAM, gate times) and IonQ's Forte page (T1, T2) | `trapped_ion_ionq_forte` |
 
 `trapped_ion_ionq_oxford` has no calibration: the published result
 (arXiv:2510.17286) gives the two-qubit error only. That profile keeps the
 depolarizing model.
+
+Medians of the bundled files (average gate infidelity; readout is the mean
+of p01 and p10):
+
+| Calibration | 1q error | 2q error | Readout error |
+|---|---|---|---|
+| `ibm_torino` | 2.7e-4 | 4.2e-3 | 2.3e-2 |
+| `google_willow` | 2.7e-4 | 2.0e-3 + coherent fSim error | 7.3e-3 |
+| `iqm_garnet` | 1.3e-3 | 8.0e-3 | 2.5e-2 |
+| `quantinuum_h2_2` | 8.0e-5 | 1.4e-3 | 1.4e-3 |
+| `ionq_forte` | 2.0e-4 | 4.6e-3 | 5.0e-3 |
+
+The `iqm_garnet` errors include relaxation during the gate (T2 is about
+10 us), as IQM's own fake-backend noise model does. They are higher than
+the randomized-benchmarking medians in IQM's paper (arXiv:2408.12433:
+single-qubit 9e-4, CZ 5e-3, readout 3e-2).
+
+Success fraction of the same 6-qubit mirror circuits
+([`zne_calibrated.py`](../examples/zne_calibrated.py) construction, seed 7),
+unmitigated, readout error included:
+
+| CX | ibm_torino | google_willow | iqm_garnet | quantinuum_h2_2 | ionq_forte |
+|---|---|---|---|---|---|
+| 6 | 0.92 | 0.95 | 0.82 | 0.99 | 0.94 |
+| 20 | 0.82 | 0.93 | 0.73 | 0.97 | 0.87 |
+| 40 | 0.72 | 0.84 | 0.54 | 0.92 | 0.75 |
+| 80 | 0.58 | 0.72 | 0.33 | 0.85 | 0.57 |
+| 160 | 0.39 | 0.54 | 0.14 | 0.73 | 0.34 |
+| 320 | 0.17 | 0.35 | 0.03 | 0.51 | 0.12 |
+
+These are snapshots from different dates and sources, not a ranking of
+today's devices.
 
 ## Format (`qregime-calibration/1`)
 
@@ -45,11 +80,13 @@ depolarizing model.
 | Field | Meaning |
 |---|---|
 | `connectivity` | `"all_to_all"`, or a list of coupled pairs `[[0, 1], ...]` |
+| `qubit_labels` | optional: the vendor's name for each qubit index (e.g. `"4_5"`, `"QB3"`) |
 | `single_qubit.error`, `.duration` | per physical pulse; one number or a per-qubit list |
 | `single_qubit.decomposition` | `"arbitrary"`: one pulse per rotation (trapped ions). `"zsx"`: IBM style, 0 to 2 `sx` pulses per rotation. Z rotations are virtual in both cases |
 | `two_qubit.native` | `"cz"`, `"cx"` or `"rzz"`. With `"rzz"`, an `rzz` gate in the circuit costs one native gate |
 | `two_qubit.error`, `.duration` | default for every coupler; `pairs` overrides per coupler |
 | `two_qubit.zz_overrotation` | optional coherent error: an extra `rzz(angle)` after every two-qubit gate |
+| `pairs[...].swap_angle`, `.conditional_phase` | optional coherent error per coupler: an fSim(θ, φ) after each native gate, as in Cirq's Google noise model. When set, that pair's `error` is the incoherent part only |
 | `readout.p01`, `.p10` | P(read 1 given 0), P(read 0 given 1); one number or a per-qubit list |
 | `idle` | either `t1`, `t2` in seconds (per-qubit lists allowed, with durations in seconds), or `memory_error_per_layer`: dephasing per qubit per two-qubit layer, with durations in layers |
 
@@ -73,10 +110,18 @@ during the gate already explains is not counted twice.
    ideal output support, which is qregime's success fraction. The
    simulation is exact (density matrix) up to 10 qubits.
 
-**Validation.** Against Qiskit Aer with the FakeTorino noise model, using
-the same layout and the same single-qubit fusion, success fractions agree
-within 0.003 on mirror circuits from 6 to 160 CX
-(`tests/test_calibration.py`).
+**Validation** against each vendor's own noise model, on the same compiled
+circuit (`tests/test_calibration.py`):
+
+- `ibm_torino` vs Qiskit Aer with the FakeTorino noise model: within 0.003
+  on mirror circuits from 6 to 160 CX;
+- `google_willow` vs Cirq's `NoiseModelFromGoogleNoiseProperties` built
+  from the same Google calibration: within 0.0013 up to 32 CZ;
+- `iqm_garnet` vs Aer with IQM's `IQMFakeGarnet` noise model and the same
+  idle times: within 0.0011 up to 40 CZ.
+
+`quantinuum_h2_2` and `ionq_forte` come from published numbers with no
+vendor simulator to compare against.
 
 **Not modelled.** Leakage, crosstalk, drift and non-Markovian noise.
 Coherent errors are modelled only through `zz_overrotation`.
@@ -97,7 +142,11 @@ calibration.success_fraction("circuit.qasm", "ibm_torino")    # just the simulat
 qregime decide circuit.qasm --calibration my_device.json --zne
 ```
 
-To export a live IBM backend (needs `pip install "qregime[ibm]"`):
+Export scripts for other sources are in
+[`research/calibrations/`](../research/calibrations/): Google devices
+through `cirq-google` (`pip install "qregime[google]"`) and IQM devices
+through `iqm-client` (`pip install "qregime[iqm]"`). To export a live IBM
+backend (needs `pip install "qregime[ibm]"`):
 
 ```python
 from qiskit_ibm_runtime import QiskitRuntimeService

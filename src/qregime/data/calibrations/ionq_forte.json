@@ -1,0 +1,12 @@
+{
+ "schema": "qregime-calibration/1",
+ "name": "ionq_forte",
+ "source": "Chen et al., 'Benchmarking a trapped-ion quantum computer with 30 qubits', arXiv:2308.05071 (Quantum 8, 1516, 2024), IonQ Forte: 30 all-to-all qubits; native ZZ_ij gate built from Molmer-Sorensen; median single-qubit DRB error 2.0e-4 per pi/2 gate (Fig. 3); median two-qubit DRB error 46.4e-4 over all 435 pairs (Fig. 4); average SPAM error 0.5% per qubit (Sec. 2, split between 0 and 1 not given: assumed symmetric); single-qubit gate 110 us, two-qubit ZZ gate about 900 us (Sec. 2). Coherence from ionq.com/quantum-systems/forte-enterprise ('T1 & T2 time: 10-100s, ~1s'): T1 = 10 s (lower end), T2 = 1 s. Not modelled: per-pair spread (10th-90th percentile 34.5e-4 to 99.6e-4), crosstalk, drift.",
+ "date": "2023-08-09",
+ "num_qubits": 30,
+ "connectivity": "all_to_all",
+ "single_qubit": {"error": 2.0e-4, "duration": 110e-6, "decomposition": "zsx"},
+ "two_qubit": {"native": "rzz", "error": 4.64e-3, "duration": 900e-6},
+ "readout": {"p01": 5e-3, "p10": 5e-3},
+ "idle": {"t1": 10.0, "t2": 1.0}
+}

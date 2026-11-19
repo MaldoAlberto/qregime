@@ -13,7 +13,9 @@ that any vendor's published numbers can fill in:
                        "decomposition": "arbitrary"},   # or "zsx" (IBM: 0-2 sx pulses)
       "two_qubit": {"native": "rzz",           # "cz", "cx" or "rzz"
                     "error": 1.4e-3, "duration": 1.0,
-                    "pairs": {"0,1": {"error": ..., "duration": ...}},   # optional overrides
+                    "pairs": {"0,1": {"error": ..., "duration": ...,   # optional overrides
+                                      # coherent fSim error after each gate, radians
+                                      "swap_angle": 0.0, "conditional_phase": 0.0}},
                     "zz_overrotation": 0.0},    # optional coherent error (radians)
       "readout": {"p01": 9e-4, "p10": 1.8e-3},  # P(read 1 | 0), P(read 0 | 1); numbers or lists
       "idle": {"t1": [...], "t2": [...]}        # seconds, per qubit or one number
@@ -52,6 +54,14 @@ MAX_QUBITS = 10          # exact density matrix: 4**n complex entries
 _H = np.array([[1, 1], [1, -1]], dtype=complex) / math.sqrt(2)
 _CZ = np.diag([1, 1, 1, -1]).astype(complex)
 _CX = np.array([[1, 0, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0]], dtype=complex)  # |q1 q0>, control q0
+
+
+def fsim_matrix(theta: float, phi: float) -> np.ndarray:
+    """fSim(theta, phi), as cirq's PhasedFSimGate(theta, phi) with zero
+    single-qubit phases: swap angle theta, conditional phase phi."""
+    c, s = math.cos(theta), -1j * math.sin(theta)
+    return np.array([[1, 0, 0, 0], [0, c, s, 0], [0, s, c, 0],
+                     [0, 0, 0, np.exp(-1j * phi)]], dtype=complex)
 
 
 def rzz_matrix(theta: float) -> np.ndarray:
@@ -126,10 +136,15 @@ class Calibration:
             raise ValueError("two_qubit.native must be 'cx', 'cz' or 'rzz'")
         self.tq_default = (float(tq.get("error", 0.0)), float(tq.get("duration", 0.0)))
         self.tq_pairs = {}
+        self.coherent_2q = {}   # (a, b) -> 4x4 coherent error after each native gate
         for key, v in tq.get("pairs", {}).items():
             a, b = sorted(int(x) for x in key.split(","))
             self.tq_pairs[(a, b)] = (float(v.get("error", self.tq_default[0])),
                                      float(v.get("duration", self.tq_default[1])))
+            theta = float(v.get("swap_angle", 0.0))
+            phi = float(v.get("conditional_phase", 0.0))
+            if theta or phi:
+                self.coherent_2q[(a, b)] = fsim_matrix(theta, phi)
         self.zz_overrotation = float(tq.get("zz_overrotation", 0.0))
 
         ro = data.get("readout", {})
@@ -451,6 +466,9 @@ def simulate_compiled(compiled: dict, cal: Calibration, n: int) -> np.ndarray:
             dm.apply_2q(op[2], slots[0], slots[1])
             if cal.zz_overrotation:
                 dm.apply_2q(rzz_matrix(cal.zz_overrotation), slots[0], slots[1])
+            coherent = cal.coherent_2q.get((min(pa, pb), max(pa, pb)))
+            if coherent is not None:
+                dm.apply_2q(coherent, slots[0], slots[1])
         f_relax = 1.0
         for s in slots:
             f_relax *= _relax_fidelity(duration, cal.t1[phys[s]], cal.t2[phys[s]])

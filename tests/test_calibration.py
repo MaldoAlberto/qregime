@@ -131,3 +131,159 @@ def test_agrees_with_qiskit_aer_on_fake_torino(tmp_path):
     support = np.abs(Statevector(qc).data) ** 2 > 1e-9
     ours = K.success_fraction(circ, "ibm_torino", layout=list(phys))
     assert ours["success_fraction_readout_mitigated"] == pytest.approx(probs[support].sum(), abs=5e-3)
+
+
+def test_bundled_vendor_calibrations():
+    expected = {"google_willow": (105, "cz", False), "iqm_garnet": (20, "cz", False),
+                "ionq_forte": (30, "rzz", True), "quantinuum_h2_2": (56, "rzz", True),
+                "ibm_torino": (133, "cz", False)}
+    assert set(expected) <= set(K.available())
+    for name, (n, native, all_to_all) in expected.items():
+        cal = K.load(name)
+        assert (cal.num_qubits, cal.native, cal.all_to_all) == (n, native, all_to_all), name
+    assert K.load("google_willow").coherent_2q          # fSim errors per coupler
+
+
+def test_fsim_coherent_error_is_exact():
+    theta, phi = 0.3, 0.5
+    cal = K.load({"schema": K.SCHEMA, "name": "fsim", "num_qubits": 2,
+                  "connectivity": [[0, 1]], "single_qubit": {"decomposition": "arbitrary"},
+                  "two_qubit": {"native": "cz", "pairs": {"0,1": {
+                      "swap_angle": theta, "conditional_phase": phi}}}})
+    # X on q0, CZ: fSim moves sin^2(theta) of the population to |01>
+    circ = C.parse(HEADER + "qreg q[2];\nx q[0];\ncz q[0],q[1];\n")
+    r = K.success_fraction(circ, cal, layout=[0, 1])
+    assert r["success_fraction"] == pytest.approx(math.cos(theta) ** 2)
+
+
+def _vendor_mirror(n, layers):
+    return _mirror(n=n, layers=layers, seed=1)
+
+
+def test_agrees_with_cirq_google_noise_model():
+    """google_willow vs cirq's own noise model built from the same Google
+    calibration, on the same compiled circuit: within 0.003."""
+    cirq = pytest.importorskip("cirq")
+    cg = pytest.importorskip("cirq_google")
+    import json
+    import os
+    import warnings
+
+    warnings.filterwarnings("ignore")
+    from qregime import simulate as S
+
+    pkg = os.path.dirname(cg.__file__)
+    calibration = cirq.read_json(
+        pkg + "/devices/calibrations/willow_pink_d7v1-2024_08_16_calibration.json")
+    times = {cirq.PhasedXZGate: 25, cirq.CZPowGate: 42, cirq.MeasurementGate: 600,
+             cirq.ZPowGate: 0, cirq.ResetChannel: 160, cirq.WaitGate: 0, cirq.FSimGate: 42,
+             cirq.ISwapPowGate: 42, cirq.PhasedFSimGate: 42, cirq.GlobalPhaseGate: 0,
+             cirq.IdentityGate: 0, cirq.PhasedISwapPowGate: 42}
+    noise = cg.NoiseModelFromGoogleNoiseProperties(
+        cg.engine.noise_properties_from_calibration(calibration, gate_times_ns=times))
+    cal = K.load("google_willow")
+    labels = json.load(open(os.path.join(K._DIR, "google_willow.json")))["qubit_labels"]
+    grid = [cirq.GridQubit(*map(int, label.split("_"))) for label in labels]
+    for n, layers in ((3, 2), (5, 8)):
+        circ = _vendor_mirror(n, layers)
+        ours = K.success_fraction(circ, cal)
+        comp = K.compile_to_device(circ, cal, ours["physical_qubits"])
+        qs = [grid[p] for p in comp["physical"]]
+        ops = []
+        for op in comp["ops"]:
+            if op[0] == "1q":
+                gate = cirq.single_qubit_matrix_to_phxz(op[2])
+                if gate is not None:
+                    ops.append(gate.on(qs[op[1][0]]))
+            else:
+                ops.append(cirq.CZ(qs[op[1][0]], qs[op[1][1]]))
+        rho = cirq.DensityMatrixSimulator(noise=noise, dtype=np.complex128).simulate(
+            cirq.Circuit(ops), qubit_order=qs).final_density_matrix
+        support = np.abs(S.statevector(circ)) ** 2 > 1e-9
+        m = len(qs)
+        theirs = sum(float(np.real(rho[i, i])) * support[sum(
+            ((i >> (m - 1 - comp["final_pos"][q])) & 1) << q for q in range(n))]
+            for i in range(2 ** m))
+        assert ours["success_fraction_readout_mitigated"] == pytest.approx(theirs, abs=3e-3)
+
+
+def test_agrees_with_iqm_garnet_noise_model():
+    """iqm_garnet vs Aer with IQM's own IQMFakeGarnet noise model, same
+    compiled circuit and the same idle times: within 0.003."""
+    pytest.importorskip("iqm.qiskit_iqm")
+    pytest.importorskip("qiskit_aer")
+    import warnings
+
+    warnings.filterwarnings("ignore")
+    from iqm.qiskit_iqm.fake_backends.fake_garnet import IQMFakeGarnet
+    from qiskit import QuantumCircuit
+    from qiskit.circuit import Delay
+    from qiskit.synthesis import OneQubitEulerDecomposer
+    from qiskit_aer import AerSimulator
+    from qiskit_aer.noise import RelaxationNoisePass
+
+    from qregime import simulate as S
+
+    backend = IQMFakeGarnet()
+    prof = backend.error_profile
+    labels = sorted(prof.t1s, key=lambda q: int(q[2:]))
+    t1s = [prof.t1s[q] * 1e-9 for q in labels]
+    t2s = [prof.t2s[q] * 1e-9 for q in labels]
+    cal = K.load("iqm_garnet")
+    zxz = OneQubitEulerDecomposer("ZXZ")
+    sim = AerSimulator(method="density_matrix", noise_model=backend.noise_model)
+    for n, layers in ((3, 2), (6, 8)):
+        circ = _vendor_mirror(n, layers)
+        ours = K.success_fraction(circ, cal)
+        comp = K.compile_to_device(circ, cal, ours["physical_qubits"])
+        phys = comp["physical"]
+        qc = QuantumCircuit(cal.num_qubits)
+        t = {s: 0.0 for s in range(len(phys))}
+
+        def wait(s, until):
+            if until - t[s] > 0:
+                qc.delay(until - t[s], phys[s], unit="s")
+
+        for op in comp["ops"]:
+            slots = op[1]
+            if op[0] == "1q":
+                pulses = K._pulses(cal, op[2])
+                duration = pulses * cal.sq_duration[phys[slots[0]]]
+            else:
+                duration = cal.two_qubit(phys[slots[0]], phys[slots[1]])[1]
+            start = max(t[s] for s in slots)
+            for s in slots:
+                wait(s, start)
+            if op[0] == "1q":
+                theta, phi, lam = zxz.angles(op[2])
+                if pulses:
+                    qc.r(theta, -lam, phys[slots[0]])
+                qc.rz(phi + lam, phys[slots[0]])     # virtual Z: noiseless
+            else:
+                qc.cz(phys[slots[0]], phys[slots[1]])
+            for s in slots:
+                t[s] = start + duration
+        end = max(t.values())
+        for s in t:
+            wait(s, end)
+        qc = RelaxationNoisePass(t1s, t2s, dt=None, op_types=[Delay])(qc)
+        qc.save_density_matrix(qubits=phys)
+        rho = np.asarray(sim.run(qc).result().data()["density_matrix"])
+        support = np.abs(S.statevector(circ)) ** 2 > 1e-9
+        theirs = sum(float(np.real(rho[i, i])) * support[sum(
+            ((i >> comp["final_pos"][q]) & 1) << q for q in range(n))]
+            for i in range(2 ** len(phys)))
+        assert ours["success_fraction_readout_mitigated"] == pytest.approx(theirs, abs=3e-3)
+
+
+@pytest.mark.parametrize("hardware", ["superconductor_google_willow",
+                                      "superconductor_iqm_garnet", "trapped_ion_ionq_forte"])
+def test_vendor_profiles_use_their_calibration(tmp_path, hardware):
+    import qregime
+
+    path = tmp_path / "m.qasm"
+    path.write_text(C.to_qasm(_mirror(n=4, layers=4)))
+    r = qregime.decide_regime(str(path), hardware=hardware, simulate_mitigation=True)
+    cal = qregime.HARDWARE_PROFILES[hardware].calibration
+    assert r["qem"]["reliability_source"].startswith(f"calibrated_simulation ({cal}")
+    assert r["qem"]["mitigation"]["simulated"]["available"]

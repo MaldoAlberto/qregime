@@ -35,6 +35,10 @@ qec = ["stim>=1.12", "pymatching>=2.0"]
 deltakit = ["deltakit>=0.10"]  # examples/deltakit_crosscheck.py
 # export a Qiskit/IBM backend's calibration (research/calibrations/export_qiskit_backend.py)
 ibm = ["qiskit>=1.0,<3", "qiskit-ibm-runtime>=0.30"]
+# export Google calibrations (research/calibrations/export_cirq_google.py)
+google = ["cirq-google>=1.6"]
+# export IQM calibrations (research/calibrations/export_iqm_fake.py)
+iqm = ["iqm-client[qiskit]"]
 compare = ["qdk", "mitiq"]  # research/comparison/compare_open_tools.py
 notebook = ["jupyter", "matplotlib"]
 dev = ["pytest>=7", "nbclient", "ipykernel", "matplotlib"]
