@@ -57,6 +57,11 @@ def _cmd_decide(args):
     print("\nRegime comparison:")
     print(f"  QEM   {_fmt_int(q['cost_qubits']):>10s} qubits   reliability {q['reliability']:.1%}"
           f"   ({q['reliability_source']})")
+    m = q["mitigation"]
+    if m["feasible"]:
+        print(f"        mitigated with ZNE (+/-{m['precision']:g}): "
+              f"{_fmt_int(m['total_shots'])} shots ({_fmt_int(m['shots_per_circuit'])} "
+              f"x {len(m['scale_factors'])} noise scales; best case, bias not modelled)")
     if f["cost_qubits"] is None:
         print(f"  FTQC  not feasible: {f['infeasible_reason']}")
     else:

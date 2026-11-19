@@ -86,6 +86,7 @@ import qregime
 r = qregime.decide_regime("my_circuit.qasm", hardware="superconductor_ibm",
                           physical_qubit_budget=1121, reliability_target=0.5)
 print(r["regime"], r["cost_physical_qubits"])
+print(r["qem"]["mitigation"]["total_shots"])         # shots ZNE needs for +/-0.01
 
 qregime.recommend("my_circuit.qasm")                 # which reductions to try
 qregime.estimate_ftqc(16, tcount=3930, p_phys=0.001,  # full fault-tolerance cost
@@ -93,6 +94,7 @@ qregime.estimate_ftqc(16, tcount=3930, p_phys=0.001,  # full fault-tolerance cos
 qregime.estimate_ftqc_band(16, 3930, 0.001)           # same, under every noise model
 qregime.best_within_budget(16, 3930, 0.001, 5_000,   # best point under a hard budget
                            noise_model="toy")
+qregime.estimate_zne_cost(0.5, precision=0.01)       # ZNE shots from unmitigated reliability
 ```
 
 Then work through **[the tutorial](tutorial/qregime_tutorial.ipynb)** (about 2

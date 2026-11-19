@@ -22,6 +22,7 @@ import tempfile
 from typing import Optional
 
 from .advisor import profile_circuit, profile_circuit_and_parse, recommend_techniques
+from .mitigation import zne_sampling_cost
 from .partial_qec import best_feasible_within_hard_budget
 from .regime import (
     DEFAULT_PHYSICAL_QUBIT_BUDGET,
@@ -258,6 +259,10 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
          cannot detect errors when the support is nearly everything;
       3. otherwise a crude analytic proxy, ``(1 - p_2q) ** two_qubit_count``
          (two-qubit gate errors only), labelled as such in the output.
+
+    The regime decision uses the unmitigated reliability. ``qem["mitigation"]``
+    adds what mitigating it would cost: the shots exponential ZNE needs for
+    +/-0.01 precision (see ``estimate_zne_cost``).
     """
     if hardware not in HARDWARE_PROFILES:
         raise ValueError(f"unknown hardware profile {hardware!r}; "
@@ -327,7 +332,8 @@ def _decide_regime(qasm_path, hw, physical_qubit_budget, reliability_target,
         "qem": {"cost_qubits": raw["cost_qem_qubits"],
                 "reliability": qem_success_fraction,
                 "reliability_source": qem_source,
-                "meets_target": raw["qem_meets_target"]},
+                "meets_target": raw["qem_meets_target"],
+                "mitigation": zne_sampling_cost(qem_success_fraction)},
         "ftqc": {"cost_qubits": raw["cost_ftqc_qubits"],
                  "fits_budget": raw["ftqc_feasible_in_budget"],
                  "meets_target": raw["ftqc_meets_target"],
@@ -339,6 +345,15 @@ def _decide_regime(qasm_path, hw, physical_qubit_budget, reliability_target,
         "ftqc_noise_band": estimate_ftqc_band(prof["num_qubits"], prof["tcount"], hw.p_2q),
         "profile": prof,
     }
+
+
+def estimate_zne_cost(reliability: float, precision: float = 0.01,
+                      scale_factors=(1, 2, 3)) -> dict:
+    """Shots that exponential zero-noise extrapolation needs to recover the
+    ideal value to ``precision`` from an unmitigated success fraction
+    ``reliability``. Assumes unbiased (exponential) decay, the best case for
+    ZNE; bias from non-exponential hardware noise is not modelled."""
+    return zne_sampling_cost(reliability, precision, scale_factors)
 
 
 def analyze(qasm_path: str, hardware: str = "superconductor_ibm",
@@ -355,5 +370,5 @@ def analyze(qasm_path: str, hardware: str = "superconductor_ibm",
 __all__ = [
     "profile", "recommend", "estimate_ftqc", "best_within_budget",
     "decide_regime", "analyze", "HARDWARE_PROFILES", "HardwareProfile",
-    "MAX_QUBITS_FOR_SIMULATION", "NOISE_MODELS", "estimate_ftqc_band",
+    "MAX_QUBITS_FOR_SIMULATION", "NOISE_MODELS", "estimate_ftqc_band", "estimate_zne_cost",
 ]

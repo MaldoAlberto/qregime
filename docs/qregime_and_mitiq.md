@@ -70,10 +70,16 @@ Mitiq's zero-noise extrapolation actually recovers.
   decay exponentially (coherent errors, leakage, drift; see the IBM
   Nighthawk case study in `research/case_studies/`, where measured Λ was
   four times below the calibration model). There, extrapolation bias returns.
-- **Next step for qregime:** report a mitigated reliability together with
-  its sampling cost, i.e. the shots needed for a target precision. Then the
-  QEM-vs-QEC decision becomes "mitigate at N times the shots, or correct at
-  M times the qubits", which is the comparison a user actually faces.
+- **qregime now reports that cost.** `decide_regime(...)["qem"]["mitigation"]`
+  gives the shots exponential ZNE needs for ±0.01 precision, and
+  `qregime.estimate_zne_cost(reliability, precision)` computes it directly.
+  The model propagates binomial shot noise through the least-squares
+  exponential fit (`src/qregime/mitigation.py`). On this benchmark its
+  predicted spread is within about 30% of Mitiq's measured spread at every
+  depth (`tests/test_mitigation.py`). It assumes no extrapolation bias, so it
+  is a lower bound on real hardware. The decision becomes "mitigate at
+  N shots, or correct at M qubits", which is the comparison a user actually
+  faces.
 
 Run (about 12 minutes):
 

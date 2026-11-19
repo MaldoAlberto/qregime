@@ -20,6 +20,7 @@ from .api import (
     decide_regime,
     estimate_ftqc,
     estimate_ftqc_band,
+    estimate_zne_cost,
     profile,
     recommend,
 )
@@ -28,7 +29,8 @@ from .qasm_export import safe_qasm2_dumps, to_plain_decimal_qasm
 __version__ = "0.1.0"
 
 __all__ = [
-    "profile", "recommend", "estimate_ftqc", "estimate_ftqc_band", "best_within_budget",
+    "profile", "recommend", "estimate_ftqc", "estimate_ftqc_band", "estimate_zne_cost",
+    "best_within_budget",
     "decide_regime", "analyze", "HARDWARE_PROFILES", "HardwareProfile",
     "MAX_QUBITS_FOR_SIMULATION", "NOISE_MODELS", "safe_qasm2_dumps", "to_plain_decimal_qasm",
     "__version__",
