@@ -22,7 +22,7 @@ import tempfile
 from typing import Optional
 
 from .advisor import profile_circuit, profile_circuit_and_parse, recommend_techniques
-from .mitigation import simulate_zne, zne_sampling_cost
+from .mitigation import calibrated_success_fraction, simulate_zne, zne_sampling_cost
 from .partial_qec import best_feasible_within_hard_budget
 from .regime import (
     DEFAULT_PHYSICAL_QUBIT_BUDGET,
@@ -243,7 +243,8 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
                   physical_qubit_budget: int = DEFAULT_PHYSICAL_QUBIT_BUDGET,
                   reliability_target: float = DEFAULT_RELIABILITY_TARGET,
                   qem_success_fraction: Optional[float] = None,
-                  shots: int = 150, simulate_mitigation: bool = False) -> dict:
+                  shots: int = 150, simulate_mitigation: bool = False,
+                  use_calibration: bool = True) -> dict:
     """QEM, partial QEC, or FTQC for this circuit on this hardware?
 
     Solves ``argmin cost(regime)`` subject to ``reliability >= target`` and
@@ -252,12 +253,19 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
 
     The QEM reliability comes from, in order of preference:
       1. ``qem_success_fraction`` if you pass one (e.g. measured on hardware);
-      2. a noisy simulation (depolarizing two-qubit noise at the hardware
+      2. an exact simulation on the device calibration (per-qubit gate
+         errors, T1/T2 during gates and idle times, readout errors,
+         noise-aware layout) for circuits up to 10 qubits on a profile with
+         a calibrated device model (``superconductor_ibm`` -> FakeTorino),
+         when ``use_calibration`` is true and ``qregime[realistic]`` is
+         installed; same success metric as 3, and ``qem["calibration"]``
+         says why it was not used otherwise;
+      3. a noisy simulation (depolarizing two-qubit noise at the hardware
          profile's error rate), for circuits up to 20 qubits whose ideal
          output is concentrated (support <= 50% of all bitstrings) -- the
          metric is the fraction of shots landing in that support, which
          cannot detect errors when the support is nearly everything;
-      3. otherwise a crude analytic proxy, ``(1 - p_2q) ** two_qubit_count``
+      4. otherwise a crude analytic proxy, ``(1 - p_2q) ** two_qubit_count``
          (two-qubit gate errors only), labelled as such in the output.
 
     The regime decision uses the unmitigated reliability. ``qem["mitigation"]``
@@ -275,8 +283,11 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
                          f"choose one of {sorted(HARDWARE_PROFILES)}")
     hw = HARDWARE_PROFILES[hardware]
     with _gate_only_qasm(qasm_path) as path:
+        calibrated = None
+        if qem_success_fraction is None and use_calibration:
+            calibrated = calibrated_success_fraction(path, hardware)
         report = _decide_regime(path, hw, physical_qubit_budget, reliability_target,
-                                qem_success_fraction, shots)
+                                qem_success_fraction, shots, calibrated)
         if simulate_mitigation:
             report["qem"]["mitigation"]["simulated"] = simulate_zne(path, hardware)
     report["qasm_path"] = qasm_path
@@ -284,12 +295,16 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
 
 
 def _decide_regime(qasm_path, hw, physical_qubit_budget, reliability_target,
-                   qem_success_fraction, shots):
+                   qem_success_fraction, shots, calibrated=None):
     prof, circuit = profile_circuit_and_parse(qasm_path)
 
     proxy = (1 - hw.p_2q) ** prof["two_qubit_count"]
     if qem_success_fraction is not None:
         qem_source = "user_supplied"
+    elif calibrated is not None and calibrated["available"]:
+        qem_success_fraction = calibrated["success_fraction"]
+        qem_source = (f"calibrated_simulation ({calibrated['device_model'].split(' ')[0]}: "
+                      f"gate, T1/T2, idle and readout errors; exact)")
     elif prof["num_qubits"] <= MAX_QUBITS_FOR_SIMULATION:
         sim = simulate_expectation(qasm_path, hw, shots=shots, verbose=False)
         support_fraction = sim["ideal_support_size"] / 2 ** prof["num_qubits"]
@@ -341,7 +356,8 @@ def _decide_regime(qasm_path, hw, physical_qubit_budget, reliability_target,
                 "reliability": qem_success_fraction,
                 "reliability_source": qem_source,
                 "meets_target": raw["qem_meets_target"],
-                "mitigation": zne_sampling_cost(qem_success_fraction)},
+                "mitigation": zne_sampling_cost(qem_success_fraction),
+                "calibration": calibrated},
         "ftqc": {"cost_qubits": raw["cost_ftqc_qubits"],
                  "fits_budget": raw["ftqc_feasible_in_budget"],
                  "meets_target": raw["ftqc_meets_target"],

@@ -81,11 +81,16 @@ def run() -> dict:
                                              simulate_mitigation=True)
             sim = decision["qem"]["mitigation"]["simulated"]
             raw, rem = sim["zne"], sim["zne_with_readout_mitigation"]
+            uncalibrated = qregime.decide_regime(path, hardware=HARDWARE, shots=2000,
+                                                 use_calibration=False)
             dep = depolarizing.get(layers)
             row = {
                 "layers": layers, "cx": qc.count_ops().get("cx", 0),
                 "qregime_regime": decision["regime"],
                 "qregime_qem_reliability": decision["qem"]["reliability"],
+                "qregime_qem_source": decision["qem"]["reliability_source"],
+                "qregime_regime_depolarizing": uncalibrated["regime"],
+                "qregime_qem_reliability_depolarizing": uncalibrated["qem"]["reliability"],
                 "analytic_zne_shots": decision["qem"]["mitigation"]["total_shots"],
                 "physical_qubits": sim["physical_qubits"],
                 "scale_factors": sim["scale_factors"],
@@ -101,7 +106,10 @@ def run() -> dict:
             }
             rows.append(row)
             fmt = lambda v: "  n/a" if v is None else f"{v:.3f}"
-            print(f"layers={layers:3d} cx={row['cx']:4d} {row['qregime_regime']:4s} "
+            print(f"layers={layers:3d} cx={row['cx']:4d} "
+                  f"qregime {row['qregime_regime']:4s} (depolarizing model: "
+                  f"{row['qregime_regime_depolarizing']}, "
+                  f"{row['qregime_qem_reliability_depolarizing']:.3f})  "
                   f"raw {fmt(row['unmitigated'])}  exp {fmt(row['exp_raw'])}  "
                   f"exp+REM {fmt(row['exp_rem'])}  rich+REM {fmt(row['rich_rem'])}  "
                   f"best bias {row['best_abs_bias']:.3f} viable={row['viable']}  "

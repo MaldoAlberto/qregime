@@ -95,16 +95,16 @@ kind of 6-qubit mirror circuits:
 
 ![ZNE on the FakeTorino calibration](zne_calibrated.png)
 
-| CX | qregime | qregime reliability | Calibrated, raw | ZNE exp. | ZNE exp. + readout mit. | ZNE Richardson + readout mit. | Shots for ±0.01 (exp. + readout mit.) |
-|---|---|---|---|---|---|---|---|
-| 6 | QEM | 0.98 | 0.92 | 0.943 | 1.000 | 1.003 | 2,889 |
-| 20 | QEM | 0.95 | 0.75 | 0.912 | 0.994 | 0.996 | 25,428 |
-| 40 | QEM | 0.90 | 0.61 | 0.901 | 0.983 | 0.972 | 62,598 |
-| 60 | QEM | 0.84 | 0.50 | 0.885 | 0.966 | 0.906 | 118,731 |
-| 120 | QEM | 0.70 | 0.26 | 0.829 | 0.906 | 0.617 | 960,606 |
-| 160 | QEM | 0.62 | 0.17 | 0.690 | 0.756 | 0.443 | 2,695,800 |
-| 240 | GAP | 0.48 | 0.08 | 0.912 | 0.988 | 0.208 | 1.6 × 10⁹ |
-| 320 | GAP | 0.37 | 0.04 | 0.218 | 0.242 | 0.090 | 4.3 × 10⁸ |
+| CX | Calibrated, raw | ZNE exp. | ZNE exp. + readout mit. | ZNE Richardson + readout mit. | Shots for ±0.01 (exp. + readout mit.) |
+|---|---|---|---|---|---|
+| 6 | 0.92 | 0.943 | 1.000 | 1.003 | 2,889 |
+| 20 | 0.75 | 0.912 | 0.994 | 0.996 | 25,428 |
+| 40 | 0.61 | 0.901 | 0.983 | 0.972 | 62,598 |
+| 60 | 0.50 | 0.885 | 0.966 | 0.906 | 118,731 |
+| 120 | 0.26 | 0.829 | 0.906 | 0.617 | 960,606 |
+| 160 | 0.17 | 0.690 | 0.756 | 0.443 | 2,695,800 |
+| 240 | 0.08 | 0.912 | 0.988 | 0.208 | 1.6 × 10⁹ |
+| 320 | 0.04 | 0.218 | 0.242 | 0.090 | 4.3 × 10⁸ |
 
 (All rows, including 10 and 80 CX, are in `zne_calibrated.json`.)
 
@@ -115,16 +115,42 @@ kind of 6-qubit mirror circuits:
    Exponential ZNE is within ±0.01 only up to 20 CX. The bias is 0.034 at
    60 CX and 0.094 at 120 CX. Under depolarizing noise the bias stayed below
    0.01 up to 640 CX. Richardson degrades sooner.
-3. **qregime's unmitigated reliability is optimistic for this device.** Its
-   model has depolarizing two-qubit noise only. The calibration adds
-   one-qubit, idle and readout errors. The calibrated success fraction falls
-   to 0.50 at 60 CX, where qregime predicts 0.84, and qregime keeps QEM up
-   to 160 CX, where the calibrated value is 0.17.
+3. **The depolarizing model is optimistic for this device.** It has
+   two-qubit noise only. The calibration adds one-qubit, idle and readout
+   errors. The calibrated success fraction falls to 0.50 at 60 CX, where the
+   depolarizing model predicts 0.84. Because of this, `decide_regime` now
+   uses the calibration for its QEM reliability whenever it can (see below).
 4. **An unbiased-looking point can be a fit artifact.** At 240 CX the
    scaled values sit at the asymptote 1/2⁶. The exponential fit lands near 1
    by chance, and the shot cost (1.6 × 10⁹) shows it is unusable.
    `simulate_zne` counts ZNE as viable only if the bias is within the
    precision and the shots stay within `max_shots` (10⁷ by default).
+
+### qregime's decision now uses the calibration
+
+For circuits up to 10 qubits on the `superconductor_ibm` profile,
+`decide_regime` takes the QEM reliability from an exact simulation on the
+FakeTorino calibration (`reliability_source` starts with
+`calibrated_simulation`). It needs `qregime[realistic]`. Use
+`use_calibration=False` or `qregime decide --no-calibration` for the
+depolarizing model. On the mirror circuits, with the default 50% target:
+
+| CX | Depolarizing model | FakeTorino calibration (default) |
+|---|---|---|
+| 6 | QEM (0.98) | QEM (0.92) |
+| 20 | QEM (0.95) | QEM (0.75) |
+| 40 | QEM (0.90) | QEM (0.61) |
+| 60 | QEM (0.84) | QEM (0.50) |
+| 80 | QEM (0.79) | GAP (0.40) |
+| 120 | QEM (0.70) | GAP (0.26) |
+| 160 | QEM (0.62) | GAP (0.17) |
+| 240 | GAP (0.48) | GAP (0.08) |
+
+The QEM boundary moves from 240 CX to 80 CX. The reliability is the
+unmitigated one, readout error included. Larger circuits, other profiles and
+circuits whose output support covers most bitstrings keep the previous
+sources; `qem["calibration"]["reason"]` says why. The example circuits in
+`examples/circuits/` are all in that group, so their decisions do not change.
 
 Not modelled: coherent over-rotations, crosstalk, leakage and drift. The
 fake-backend calibration does not contain them, and on hardware they add

@@ -24,6 +24,8 @@ from __future__ import annotations
 import functools
 import math
 
+import numpy as np
+
 DEFAULT_SCALE_FACTORS = (1.0, 2.0, 3.0)
 DEFAULT_PRECISION = 0.01
 
@@ -89,6 +91,32 @@ def _load_backend(hardware: str):
     return backend, NoiseModel.from_backend(backend), None
 
 
+def _restrict_noise_model(noise_model, active: set):
+    """Copy of ``noise_model`` keeping only errors on ``active`` qubits.
+
+    Aer spends most of a small simulation matching the circuit against a
+    133-qubit noise model; restricting it gives identical results about ten
+    times faster. Falls back to the full model if Aer's internals change.
+    """
+    from qiskit_aer.noise import NoiseModel
+
+    try:
+        small = NoiseModel(basis_gates=noise_model.basis_gates)
+        for gate, errors in noise_model._local_quantum_errors.items():
+            for qubits, error in errors.items():
+                if set(qubits) <= active:
+                    small.add_quantum_error(error, gate, qubits)
+        for qubits, error in noise_model._local_readout_errors.items():
+            if set(qubits) <= active:
+                small.add_readout_error(error, qubits)
+        if noise_model._default_quantum_errors or noise_model._default_readout_error:
+            return noise_model
+        small._custom_noise_passes = list(noise_model._custom_noise_passes)
+        return small
+    except AttributeError:
+        return noise_model
+
+
 def _fold_gates(circuit, scale: float):
     """Replace a share of the gates G by G G^dag G, spread evenly, so the
     gate count grows by ``scale`` (Mitiq-style local folding of every gate,
@@ -113,7 +141,6 @@ def _fold_gates(circuit, scale: float):
 
 def _apply_readout_error(probs, flips):
     """Symmetric per-qubit readout flips; bit i of the index is qubit i."""
-    import numpy as np
 
     n = len(flips)
     t = np.asarray(probs, dtype=float).reshape((2,) * n)
@@ -126,13 +153,100 @@ def _apply_readout_error(probs, flips):
 
 def _exponential_fit(scales, values, asymptote):
     """Least-squares fit of ln(y - a) vs. scale; returns (y(0), intercept weights) or None."""
-    import numpy as np
 
     lifted = np.asarray(values) - asymptote
     if np.any(lifted <= 0):
         return None
     slope, intercept = np.polyfit(scales, np.log(lifted), 1)
     return asymptote + float(np.exp(intercept)), _intercept_weights(scales)
+
+
+def _prepare_calibrated(qasm_path: str, hardware: str, seed: int):
+    """Transpile a circuit onto the calibrated device model, ready to simulate.
+
+    Returns (state, None) or (None, reason). ``state`` holds the transpiled
+    circuit, the ideal-support mask, the readout errors of the qubits used,
+    the scheduling pass manager and the simulator.
+    """
+    from qiskit import QuantumCircuit
+    from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary
+    from qiskit.quantum_info import Statevector
+    from qiskit.transpiler import PassManager, generate_preset_pass_manager
+    from qiskit.transpiler.passes import ALAPScheduleAnalysis, BasisTranslator, PadDelay
+    from qiskit_aer import AerSimulator
+
+    backend, noise_model, reason = _load_backend(hardware)
+    if backend is None:
+        return None, reason
+    qc = QuantumCircuit.from_qasm_file(qasm_path)
+    qc.remove_final_measurements()
+    n = qc.num_qubits
+    if n > MAX_QUBITS_FOR_ZNE_SIMULATION:
+        return None, f"{n} qubits > {MAX_QUBITS_FOR_ZNE_SIMULATION} (exact density-matrix limit)"
+    support = Statevector.from_instruction(qc).probabilities() > 1e-9
+    asymptote = float(support.sum()) / 2 ** n
+    if asymptote > 0.5:
+        return None, (f"ideal output support covers {asymptote:.0%} of bitstrings: "
+                      "the success fraction cannot detect errors")
+
+    target = backend.target
+    # noise-aware layout (level 3: VF2 scores layouts by calibrated error;
+    # level 1 keeps a trivial layout whenever it fits) but no gate
+    # cancellation anywhere: the level-0 init stage and no optimization
+    # stage, so the circuit stays the one the user asked about (a mirror
+    # U U^dag would otherwise shrink or vanish)
+    pm = generate_preset_pass_manager(optimization_level=3, backend=backend,
+                                      seed_transpiler=seed)
+    pm.init = generate_preset_pass_manager(optimization_level=0, backend=backend).init
+    pm.optimization = None
+    tqc = pm.run(qc)
+    physical = tqc.layout.final_index_layout()
+    # folded inverses (e.g. sxdg) are translated to native gates, then the
+    # circuit is scheduled; no optimization, so the folds survive
+    schedule = PassManager([BasisTranslator(SessionEquivalenceLibrary, target.operation_names,
+                                            target=target),
+                            ALAPScheduleAnalysis(target=target), PadDelay(target=target)])
+    return {
+        "backend": backend, "circuit": tqc, "physical": physical, "support": support,
+        "asymptote": asymptote, "schedule": schedule,
+        "readout": [target["measure"][(q,)].error or 0.0 for q in physical],
+        "sim": AerSimulator(
+            method="density_matrix", seed_simulator=seed,
+            noise_model=_restrict_noise_model(
+                noise_model, {tqc.find_bit(q).index for inst in tqc.data for q in inst.qubits})),
+    }, None
+
+
+def _calibrated_success(state, scale: float = 1.0):
+    """(scale reached, success fraction with readout error, without readout error)."""
+    folded, reached = _fold_gates(state["circuit"], scale) if scale != 1 else (state["circuit"], 1.0)
+    timed = state["schedule"].run(folded)
+    timed.save_probabilities(qubits=state["physical"])
+    probs = np.asarray(state["sim"].run(timed).result().data()["probabilities"])
+    support = state["support"]
+    return (reached, float(_apply_readout_error(probs, state["readout"])[support].sum()),
+            float(probs[support].sum()))
+
+
+def calibrated_success_fraction(qasm_path: str, hardware: str = "superconductor_ibm",
+                                seed: int = 7) -> dict:
+    """Unmitigated success fraction on the calibrated device model.
+
+    Same metric as qregime's noisy simulation (probability of landing in the
+    ideal output support), but with the device's per-qubit gate errors,
+    T1/T2 relaxation during gates and idle times, readout errors and a
+    noise-aware layout, computed exactly (no shot noise). Up to
+    ``MAX_QUBITS_FOR_ZNE_SIMULATION`` qubits, on profiles listed in
+    ``CALIBRATED_BACKENDS``.
+    """
+    state, reason = _prepare_calibrated(qasm_path, hardware, seed)
+    if state is None:
+        return {"available": False, "reason": reason}
+    _, raw, rem = _calibrated_success(state)
+    return {"available": True,
+            "device_model": f"{state['backend'].name} calibration (qiskit-ibm-runtime fake backend)",
+            "physical_qubits": list(state["physical"]),
+            "success_fraction": raw, "success_fraction_readout_mitigated": rem}
 
 
 def simulate_zne(qasm_path: str, hardware: str = "superconductor_ibm",
@@ -157,62 +271,20 @@ def simulate_zne(qasm_path: str, hardware: str = "superconductor_ibm",
     Not modelled: coherent over-rotations, crosstalk, leakage and drift,
     which the fake-backend calibration does not contain.
     """
-    import numpy as np
-    from qiskit import QuantumCircuit
-    from qiskit.quantum_info import Statevector
-    from qiskit.transpiler import PassManager, generate_preset_pass_manager
-    from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary
-    from qiskit.transpiler.passes import ALAPScheduleAnalysis, BasisTranslator, PadDelay
-    from qiskit_aer import AerSimulator
-
-    backend, noise_model, reason = _load_backend(hardware)
-    if backend is None:
+    state, reason = _prepare_calibrated(qasm_path, hardware, seed)
+    if state is None:
         return {"available": False, "reason": reason}
-    qc = QuantumCircuit.from_qasm_file(qasm_path)
-    qc.remove_final_measurements()
-    n = qc.num_qubits
-    if n > MAX_QUBITS_FOR_ZNE_SIMULATION:
-        return {"available": False,
-                "reason": f"{n} qubits > {MAX_QUBITS_FOR_ZNE_SIMULATION} (exact density-matrix limit)"}
-    support = Statevector.from_instruction(qc).probabilities() > 1e-9
-    asymptote = float(support.sum()) / 2 ** n
-    if asymptote > 0.5:
-        return {"available": False,
-                "reason": f"ideal output support covers {asymptote:.0%} of bitstrings: "
-                          "the success fraction cannot detect errors"}
-
-    target = backend.target
-    # noise-aware layout (level 3: VF2 scores layouts by calibrated error;
-    # level 1 keeps a trivial layout whenever it fits) but no gate
-    # cancellation anywhere: the level-0 init stage and no optimization
-    # stage, so the circuit stays the one the user asked about (a mirror
-    # U U^dag would otherwise shrink or vanish)
-    pm = generate_preset_pass_manager(optimization_level=3, backend=backend,
-                                      seed_transpiler=seed)
-    pm.init = generate_preset_pass_manager(optimization_level=0, backend=backend).init
-    pm.optimization = None
-    tqc = pm.run(qc)
-    if not any(inst.operation.num_qubits == 2 for inst in tqc.data):
+    if not any(inst.operation.num_qubits == 2 for inst in state["circuit"].data):
         return {"available": False, "reason": "no two-qubit gates to fold"}
-    physical = tqc.layout.final_index_layout()
-    readout = [target["measure"][(q,)].error or 0.0 for q in physical]
-    # folded inverses (e.g. sxdg) are translated to native gates, then the
-    # circuit is scheduled; no optimization, so the folds survive
-    schedule = PassManager([BasisTranslator(SessionEquivalenceLibrary, target.operation_names,
-                                            target=target),
-                            ALAPScheduleAnalysis(target=target), PadDelay(target=target)])
-    sim = AerSimulator(method="density_matrix", noise_model=noise_model,
-                       seed_simulator=seed)
+    backend, asymptote = state["backend"], state["asymptote"]
+    physical = state["physical"]
 
     scales, y_noisy, y_rem = [], [], []
     for scale in scale_factors:
-        folded, reached = _fold_gates(tqc, float(scale))
-        timed = schedule.run(folded)
-        timed.save_probabilities(qubits=physical)
-        probs = np.asarray(sim.run(timed).result().data()["probabilities"])
+        reached, raw_value, rem_value = _calibrated_success(state, float(scale))
         scales.append(reached)
-        y_rem.append(float(probs[support].sum()))
-        y_noisy.append(float(_apply_readout_error(probs, readout)[support].sum()))
+        y_noisy.append(raw_value)
+        y_rem.append(rem_value)
 
     def extrapolate(values):
         exp_fit = _exponential_fit(scales, values, asymptote)

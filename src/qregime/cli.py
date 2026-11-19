@@ -35,7 +35,8 @@ def _cmd_decide(args):
     r = api.decide_regime(args.qasm, hardware=args.hardware,
                           physical_qubit_budget=args.budget,
                           reliability_target=args.target,
-                          simulate_mitigation=args.zne)
+                          simulate_mitigation=args.zne,
+                          use_calibration=not args.no_calibration)
     recs = api.recommend(args.qasm, circuit_profile=r["profile"])
     elapsed = time.time() - t0
     if args.json:
@@ -132,6 +133,9 @@ def main(argv=None) -> int:
                        choices=sorted(api.HARDWARE_PROFILES))
     p_dec.add_argument("--budget", type=int, default=1121,
                        help="physical-qubit budget (default: 1121, IBM Condor)")
+    p_dec.add_argument("--no-calibration", action="store_true",
+                       help="use the depolarizing model even when a device calibration "
+                            "is available")
     p_dec.add_argument("--zne", action="store_true",
                        help="also simulate ZNE on the device calibration (<= 10 qubits, "
                             "needs qregime[realistic]; 15-40 s)")

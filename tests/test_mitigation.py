@@ -111,3 +111,16 @@ def test_simulate_zne_on_calibration(tmp_path):
     assert rem["values"][0] >= r["zne"]["values"][0]
     # a shallow circuit: ZNE + readout mitigation recovers the ideal value
     assert r["best_abs_bias"] < 0.02
+
+
+def test_decide_regime_uses_calibration(tmp_path):
+    pytest.importorskip("qiskit_ibm_runtime")
+    path = _mirror_qasm(tmp_path)
+    calibrated = qregime.decide_regime(path)
+    assert calibrated["qem"]["reliability_source"].startswith("calibrated_simulation")
+    assert calibrated["qem"]["calibration"]["success_fraction"] == calibrated["qem"]["reliability"]
+    plain = qregime.decide_regime(path, use_calibration=False)
+    assert plain["qem"]["reliability_source"].startswith("noisy_simulation")
+    assert plain["qem"]["calibration"] is None
+    # a measured value always wins
+    assert qregime.decide_regime(path, qem_success_fraction=0.3)["qem"]["reliability"] == 0.3

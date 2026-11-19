@@ -110,7 +110,9 @@ def run() -> dict:
             path = os.path.join(tmp, f"mirror_{layers}.qasm")
             with open(path, "w") as f:
                 f.write(safe_qasm2_dumps(qc))
-            decision = qregime.decide_regime(path, hardware=HARDWARE, shots=QREGIME_SHOTS)
+            # same depolarizing model as the executor below, for a like-for-like check
+            decision = qregime.decide_regime(path, hardware=HARDWARE, shots=QREGIME_SHOTS,
+                                             use_calibration=False)
             factories = {"richardson": lambda: RichardsonFactory([1, 2, 3]),
                          "exponential": lambda: ExpFactory([1, 2, 3], asymptote=2 ** -N_QUBITS)}
             zne_rows = {}
