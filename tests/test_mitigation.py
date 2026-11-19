@@ -96,6 +96,9 @@ def test_simulate_zne_unavailable_reasons(tmp_path):
     path = tmp_path / "big.qasm"
     path.write_text(text)
     assert "density-matrix limit" in simulate_zne(str(path))["reason"]
+    text = HEADER + "qreg q[3];\nh q;\n"
+    path.write_text(text)
+    assert "concentrated output" in simulate_zne(str(path))["reason"]
 
 
 @pytest.mark.parametrize("device", ["ibm_torino", "quantinuum_h2_2"])

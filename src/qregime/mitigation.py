@@ -95,8 +95,9 @@ def simulate_zne(qasm_path: str, calibration="ibm_torino",
     The bias is reported with and without ideal readout-error mitigation,
     because readout error is not amplified by folding.
 
-    Not modelled: leakage, crosstalk, drift; coherent errors only if the
-    calibration sets ``zz_overrotation``.
+    Needs at most 10 qubits and an ideal output on at most half of the
+    bitstrings. Not modelled: leakage, crosstalk, drift; coherent errors only
+    if the calibration sets ``zz_overrotation`` or fSim angles.
     """
     from . import calibration as _calibration
 

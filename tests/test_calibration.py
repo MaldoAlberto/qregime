@@ -297,3 +297,83 @@ def test_vendor_profiles_use_their_calibration(tmp_path, hardware):
     cal = qregime.HARDWARE_PROFILES[hardware].calibration
     assert r["qem"]["reliability_source"].startswith(f"calibrated_simulation ({cal}")
     assert r["qem"]["mitigation"]["simulated"]["available"]
+
+
+# --------------------------------------------------------------------------
+# quantum trajectories and the mirror metric
+# --------------------------------------------------------------------------
+
+def test_state_vector_kernels_match_matrices():
+    from qregime.simulate import StateVector
+
+    rng = np.random.default_rng(0)
+    psi = rng.normal(size=8) + 1j * rng.normal(size=8)
+    paulis = [np.eye(2), np.array([[0, 1], [1, 0]]), np.array([[0, -1j], [1j, 0]]),
+              np.diag([1, -1])]
+    u2 = np.linalg.qr(rng.normal(size=(4, 4)) + 1j * rng.normal(size=(4, 4)))[0]
+
+    def full(m, qubits):           # dense operator, bit q of the index = qubit q
+        out = np.zeros((8, 8), dtype=complex)
+        for i in range(8):
+            for j in range(8):
+                if any((i >> q & 1) != (j >> q & 1) for q in range(3) if q not in qubits):
+                    continue
+                a = sum((i >> q & 1) << k for k, q in enumerate(qubits))
+                b = sum((j >> q & 1) << k for k, q in enumerate(qubits))
+                out[i, j] = m[a, b]
+        return out
+
+    for k in range(4):
+        for q in range(3):
+            sv = StateVector(3, psi.copy())
+            sv.pauli(k, q)
+            assert np.allclose(sv.psi, full(paulis[k], (q,)) @ psi)
+    sv = StateVector(3, psi.copy())
+    sv.apply_2q(u2, 2, 0)
+    assert np.allclose(sv.psi, full(u2, (2, 0)) @ psi)
+
+
+@pytest.mark.parametrize("name", ["ibm_boston", "google_willow", "iqm_garnet"])
+def test_trajectories_agree_with_density_matrix(name, monkeypatch):
+    monkeypatch.setattr(K, "TARGET_STANDARD_ERROR", 0.002)
+    monkeypatch.setattr(K, "MIN_TRAJECTORIES", 200)
+    circ, cal = _mirror(n=5, layers=8, seed=3), K.load(name)
+    compiled = K.compile_to_device(circ, cal)
+    support = np.abs(K.statevector(circ)) ** 2 > 1e-9
+    exact = K.simulate_compiled(compiled, cal, 5)[support].sum()
+    probs, info = K._trajectories(compiled, cal, 5, support)
+    # T1 is Pauli-twirled in trajectories: a small pessimistic bias is expected
+    assert abs(probs[support].sum() - exact) < 4 * info["standard_error"] + 0.006
+
+
+def test_large_circuit_uses_trajectories(tmp_path):
+    n = 12
+    text = HEADER + f"qreg q[{n}];\nh q[0];\n" + "".join(
+        f"cx q[{q}],q[{q + 1}];\n" for q in range(n - 1))
+    r = K.success_fraction(C.parse(text), "quantinuum_helios")
+    assert r["available"] and r["metric"] == "output_support"
+    assert r["engine"].endswith("trajectories") and r["standard_error"] < 0.02
+    # 11 ZZ gates at ~8e-4 plus readout: high but below 1
+    assert 0.9 < r["success_fraction"] < 1.0
+
+
+def test_mirror_estimate_matches_direct_metric_without_coherent_error():
+    circ, cal = _mirror(n=5, layers=8, seed=3), K.load("ibm_boston")
+    compiled = K.compile_to_device(circ, cal)
+    support = np.abs(K.statevector(circ)) ** 2 > 1e-9
+    direct = K.simulate_compiled(compiled, cal, 5)[support].sum()
+    mirror = K.simulate_compiled(K._mirror(compiled), cal, 5)[0]
+    assert math.sqrt(mirror) == pytest.approx(direct, abs=0.005)
+
+
+def test_broad_output_uses_mirror_metric():
+    text = HEADER + "qreg q[4];\n" + "".join(f"ry(0.7) q[{q}];\n" for q in range(4)) + \
+        "cx q[0],q[1];\ncx q[2],q[3];\ncx q[1],q[2];\n" + \
+        "".join(f"ry(1.1) q[{q}];\n" for q in range(4))
+    r = K.success_fraction(C.parse(text), "ibm_boston")
+    assert r["available"] and r["metric"] == "mirror"
+    assert r["output_support_fraction"] > 0.5
+    assert 0 < r["success_fraction"] < r["success_fraction_readout_mitigated"] < 1
+    assert r["success_fraction_readout_mitigated"] == pytest.approx(math.sqrt(r["mirror_success"]))
+    ideal = K.success_fraction(C.parse(text), _noiseless())
+    assert ideal["success_fraction"] == pytest.approx(1.0)

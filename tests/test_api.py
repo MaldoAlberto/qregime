@@ -49,7 +49,13 @@ def test_decide_regime_small_circuit_picks_qem(circuit):
 
 def test_uninformative_simulation_metric_is_not_used(circuit):
     # VQE ansatz output covers every bitstring: every noisy shot would "succeed".
+    # With a calibration, qregime uses the mirror estimate instead...
     r = qregime.decide_regime(circuit("vqe_ansatz"))
+    assert "mirror estimate" in r["qem"]["reliability_source"]
+    assert r["qem"]["calibration"]["metric"] == "mirror"
+    assert 0 < r["qem"]["reliability"] < 1.0
+    # ...without one, it falls back to the analytic proxy, not the support metric
+    r = qregime.decide_regime(circuit("vqe_ansatz"), use_calibration=False)
     assert r["qem"]["reliability_source"].startswith("analytic_proxy")
     assert r["qem"]["reliability"] < 1.0
 

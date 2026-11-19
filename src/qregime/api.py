@@ -250,15 +250,18 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
 
     The QEM reliability comes from, in order of preference:
       1. ``qem_success_fraction`` if you pass one (e.g. measured on hardware);
-      2. an exact simulation on a device calibration, for circuits up to 10
-         qubits whose ideal output is concentrated: the circuit is mapped
-         and compiled to the device's native gates and simulated with its
-         gate errors, idle decoherence and readout errors. The calibration
-         is ``calibration`` (a bundled name such as ``"ibm_torino"`` or
-         ``"quantinuum_h2_2"``, a JSON path or a dict; see
-         ``qregime.calibration``), else the hardware profile's own one.
-         ``use_calibration=False`` skips it; ``qem["calibration"]`` says
-         why it was not used otherwise;
+      2. a simulation on a device calibration, for circuits up to 20 qubits:
+         the circuit is mapped and compiled to the device's native gates and
+         simulated with its gate errors, idle decoherence and readout errors
+         (exact density matrix up to 10 qubits, quantum trajectories up to
+         20). Concentrated outputs use the success fraction; broad outputs
+         (variational circuits, QFT on superpositions) use the mirror
+         estimate, sqrt(P(circuit + inverse returns to |0...0>)) times the
+         readout success. The calibration is ``calibration`` (a bundled name
+         such as ``"ibm_boston"`` or ``"quantinuum_helios"``, a JSON path or
+         a dict; see ``qregime.calibration``), else the hardware profile's
+         own one. ``use_calibration=False`` skips it; ``qem["calibration"]``
+         says why it was not used otherwise;
       3. a noisy simulation (depolarizing two-qubit noise at the hardware
          profile's error rate), for circuits up to 20 qubits whose ideal
          output is concentrated (support <= 50% of all bitstrings) -- the
@@ -270,8 +273,8 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
     The regime decision uses the unmitigated reliability. ``qem["mitigation"]``
     adds what mitigating it would cost: the shots exponential ZNE needs for
     +/-0.01 precision (see ``estimate_zne_cost``). That estimate assumes
-    unbiased extrapolation. With ``simulate_mitigation=True`` (same limits
-    as the calibrated simulation), qregime also runs ZNE on the device
+    unbiased extrapolation. With ``simulate_mitigation=True`` (up to 10
+    qubits with a concentrated output), qregime also runs ZNE on the device
     calibration and reports its bias and whether it reaches the precision,
     under ``qem["mitigation"]["simulated"]``.
     """
@@ -305,8 +308,13 @@ def _decide_regime(qasm_path, hw, physical_qubit_budget, reliability_target,
         qem_source = "user_supplied"
     elif calibrated is not None and calibrated["available"]:
         qem_success_fraction = calibrated["success_fraction"]
+        metric = ("output support" if calibrated.get("metric", "output_support") == "output_support"
+                  else "mirror estimate")
+        engine = calibrated.get("engine", "exact density matrix")
+        if "standard_error" in calibrated:
+            engine += f", +/-{calibrated['standard_error']:.3f}"
         qem_source = (f"calibrated_simulation ({calibrated['device_model'].split(' ')[0]}: "
-                      f"native gates, idle and readout errors; exact)")
+                      f"native gates, idle and readout errors; {metric}; {engine})")
     elif prof["num_qubits"] <= MAX_QUBITS_FOR_SIMULATION:
         sim = simulate_expectation(qasm_path, hw, shots=shots, verbose=False)
         support_fraction = (sim["ideal_support_size"] / 2 ** prof["num_qubits"]

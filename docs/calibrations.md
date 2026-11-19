@@ -8,7 +8,8 @@ two-qubit gate is optimistic. On IBM Torino it predicts 0.85 success for a
 [qregime_and_mitiq.md](qregime_and_mitiq.md)).
 
 qregime therefore reads device calibrations in a small, vendor-neutral JSON
-format, and simulates circuits on them exactly. No quantum SDK is needed:
+format, and simulates circuits on them: exactly up to 10 qubits, with quantum
+trajectories up to 20. No quantum SDK is needed:
 qregime reads OpenQASM 2 itself (`qregime.circuit`) and simulates with numpy
 (`qregime.simulate`, `qregime.calibration`).
 
@@ -118,9 +119,52 @@ during the gate already explains is not counted twice.
    qubits decohere (T1/T2 or memory error).
 4. **Noise.** Each gate is followed by depolarizing noise and relaxation
    during the gate. Readout flips are applied to the final distribution.
-5. **Metric.** The result is the probability of landing in the circuit's
-   ideal output support, which is qregime's success fraction. The
-   simulation is exact (density matrix) up to 10 qubits.
+5. **Metric.** The metric depends on the circuit's ideal output:
+   - **Output support** (the ideal output covers at most half of the
+     bitstrings, as for arithmetic, GHZ or mirror circuits): the probability
+     of landing in that support, which is qregime's success fraction.
+   - **Mirror estimate** (broader outputs, as for VQE ansatze, QAOA or a
+     QFT on a superposition): there the support metric cannot see errors,
+     because almost every bitstring "succeeds". qregime simulates the
+     compiled circuit followed by its inverse on the device, which ideally
+     returns to |0...0>. With F_mirror the probability of getting there
+     (no readout error), the reliability is sqrt(F_mirror) times the
+     probability that no measured qubit is misread. It assumes the two
+     halves fail independently.
+6. **Engine.** Exact density matrix up to 10 qubits. From 11 to 20 qubits,
+   pure-state quantum trajectories: the probability that no noise event
+   happens is computed exactly and contributes the ideal output; only
+   trajectories with at least one event are sampled, until the standard
+   error of the estimate reaches 0.01 or a work cap is hit (at least 16
+   trajectories). The result carries `engine`, `trajectories` and
+   `standard_error`. Relaxation is Pauli-twirled in trajectories, so they
+   run slightly pessimistic: 0.000 to 0.005 below the exact result on the
+   validation circuits below.
+
+How good the mirror estimate is, on the 6-qubit mirror circuits (where both
+metrics can be computed): sqrt(F_mirror) vs the direct success fraction,
+readout excluded:
+
+| Calibration | 10 CX | 40 CX | 80 CX |
+|---|---|---|---|
+| `ibm_boston` | 0.984 vs 0.984 | 0.934 vs 0.934 | 0.863 vs 0.862 |
+| `iqm_garnet` | 0.905 vs 0.905 | 0.666 vs 0.660 | 0.395 vs 0.378 |
+| `quantinuum_helios` | 0.991 vs 0.991 | 0.967 vs 0.967 | 0.913 vs 0.913 |
+| `ionq_forte` | 0.944 vs 0.944 | 0.789 vs 0.787 | 0.592 vs 0.587 |
+| `google_willow` | 0.963 vs 0.973 | 0.858 vs 0.887 | 0.673 vs 0.748 |
+
+With incoherent noise it agrees to within 0.02. With Willow's coherent fSim
+errors, the inverse does not undo them: they add up coherently over both
+halves, and the mirror estimate is pessimistic by up to 0.07 at 80 CZ. On
+hardware, coherent errors can also partly cancel in a mirror circuit, which
+would make it optimistic. Read the mirror estimate as good to a few percent
+for incoherent noise, and as a rough figure when coherent errors dominate.
+
+Timing on a laptop: an 8-qubit VQE ansatz (exact) takes about a second. The
+18-qubit, 540-CZ `adder8` takes 30 s on Quantinuum Helios (0.92 +/- 0.02)
+and 85 s on IBM Boston (0.10 +/- 0.06). The error is larger at low
+reliability because each trajectory of a reversible classical circuit ends
+almost entirely right or entirely wrong.
 
 **Validation** against each vendor's own noise model, on the same compiled
 circuit (`tests/test_calibration.py`):
@@ -137,7 +181,9 @@ circuit (`tests/test_calibration.py`):
 come from published numbers with no vendor simulator to compare against.
 
 **Not modelled.** Leakage, crosstalk, drift and non-Markovian noise.
-Coherent errors are modelled only through `zz_overrotation`.
+Coherent errors are modelled only through `zz_overrotation` and the per-pair
+fSim angles. Circuits above 20 qubits get no calibrated simulation; the
+decision layer then falls back to its depolarizing model or analytic proxy.
 
 ## Use
 
@@ -148,7 +194,8 @@ from qregime import calibration
 qregime.decide_regime("circuit.qasm")                         # profile's own calibration
 qregime.decide_regime("circuit.qasm", calibration="quantinuum_h2_2")
 qregime.decide_regime("circuit.qasm", calibration="my_device.json")
-calibration.success_fraction("circuit.qasm", "ibm_torino")    # just the simulation
+calibration.success_fraction("circuit.qasm", "ibm_boston")    # just the simulation
+# -> metric ("output_support" or "mirror"), engine, success_fraction, ...
 ```
 
 ```bash

@@ -1,4 +1,5 @@
-"""Vendor-neutral device calibrations and an exact calibrated simulator.
+"""Vendor-neutral device calibrations and a calibrated simulator (exact density
+matrix up to 10 qubits, quantum trajectories up to 20).
 
 A calibration is a small JSON document (schema ``qregime-calibration/1``)
 that any vendor's published numbers can fill in:
@@ -45,11 +46,16 @@ from typing import Optional, Union
 import numpy as np
 
 from . import circuit as _circuit
-from .simulate import DensityMatrix, apply_readout_error, statevector, u_matrix
+from .simulate import DensityMatrix, StateVector, apply_readout_error, statevector, u_matrix
 
 SCHEMA = "qregime-calibration/1"
 _DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "calibrations")
 MAX_QUBITS = 10          # exact density matrix: 4**n complex entries
+MAX_QUBITS_TRAJECTORIES = 20   # pure-state trajectories: 2**n amplitudes each
+MAX_TRAJECTORY_WORK = 6e9      # gate applications x 2**n, over all trajectories
+MIN_TRAJECTORIES, MAX_TRAJECTORIES = 16, 400
+TARGET_STANDARD_ERROR = 0.01
+CHECKPOINT_BYTES = 2 ** 28     # memory for saved ideal states (256 MB)
 
 _H = np.array([[1, 1], [1, -1]], dtype=complex) / math.sqrt(2)
 _CZ = np.diag([1, 1, 1, -1]).astype(complex)
@@ -433,16 +439,40 @@ def _fold(ops, scale: float):
 
 
 def simulate_compiled(compiled: dict, cal: Calibration, n: int) -> np.ndarray:
-    """Probabilities over logical bitstrings (no readout error) and the
-    per-logical readout flips, for compiled ops."""
-    phys = compiled["physical"]
+    """Probabilities over logical bitstrings (no readout error) for compiled
+    ops, exact (density matrix)."""
     dm = DensityMatrix(n)
+    _run(compiled, cal, n, dm)
+    return _to_logical(dm.probabilities(), compiled, n)
+
+
+def _to_logical(probs: np.ndarray, compiled: dict, n: int) -> np.ndarray:
+    """Reorder probabilities (bit k = slot k) so that bit i = logical qubit i."""
+    pos = compiled["final_pos"]
+    tensor = probs.reshape((2,) * n)                  # axis n-1-k = slot k
+    tensor = np.transpose(tensor, [n - 1 - pos[n - 1 - axis] for axis in range(n)])
+    return tensor.reshape(-1)
+
+
+def _run(compiled: dict, cal: Calibration, n: int, dm) -> None:
+    """Drive ``dm`` (anything with apply_1q, apply_2q, depolarize, relax)
+    through the scheduled, noisy compiled circuit."""
+    phys = compiled["physical"]
     t = [0.0] * n
 
-    def relax(slot, duration):
+    # relaxation is applied lazily: T1/T2 channels compose, so the time a
+    # qubit spends after its last gate is accumulated and applied once,
+    # right before the qubit is used again (or at the end)
+    pending = [0.0] * n
+
+    def flush(slot):
         p = phys[slot]
+        duration, pending[slot] = pending[slot], 0.0
         if duration > 0 and (math.isfinite(cal.t1[p]) or math.isfinite(cal.t2[p])):
             dm.relax(slot, duration, cal.t1[p], cal.t2[p])
+
+    def relax(slot, duration):
+        pending[slot] += duration
 
     for op in compiled["ops"]:
         slots = op[1]
@@ -459,6 +489,7 @@ def simulate_compiled(compiled: dict, cal: Calibration, n: int) -> np.ndarray:
         start = max(t[s] for s in slots)
         for s in slots:
             relax(s, start - t[s])
+            flush(s)
         if op[0] == "1q":
             dm.apply_1q(op[2], slots[0])
         else:
@@ -481,13 +512,109 @@ def simulate_compiled(compiled: dict, cal: Calibration, n: int) -> np.ndarray:
     end = max(t) if t else 0.0
     for s in range(n):
         relax(s, end - t[s])
+        flush(s)
 
-    probs = dm.probabilities()                        # bit k = slot k
-    # reorder so that bit i = logical qubit i
-    pos = compiled["final_pos"]
-    tensor = probs.reshape((2,) * n)                  # axis n-1-k = slot k
-    tensor = np.transpose(tensor, [n - 1 - pos[n - 1 - axis] for axis in range(n)])
-    return tensor.reshape(-1)
+
+class _Program:
+    """Records the noisy circuit as unitaries and Pauli channels: the
+    trajectory form of what ``_run`` does to a density matrix. Depolarizing
+    noise is exact; T1/T2 relaxation is Pauli-twirled (px = py = gamma/4,
+    pz = (1 - exp(-t/T2))/2 - gamma/4), as in Stim-style circuit noise."""
+
+    def __init__(self):
+        self.steps = []        # ("u", qubits, matrix) or ("p", qubits, p_event, weights)
+
+    def apply_1q(self, m, q):
+        self.steps.append(("u", (q,), m))
+
+    def apply_2q(self, m, q0, q1):
+        self.steps.append(("u", (q0, q1), m))
+
+    def depolarize(self, qubits, lam):
+        d2 = 4 ** len(qubits)
+        if lam > 0:
+            self.steps.append(("p", tuple(qubits), lam * (d2 - 1) / d2, None))
+
+    def relax(self, q, duration, t1, t2):
+        if duration <= 0:
+            return
+        t2 = min(t2, 2 * t1)
+        gamma = 1 - math.exp(-duration / t1) if math.isfinite(t1) else 0.0
+        pz = (1 - math.exp(-duration / t2)) / 2 - gamma / 4 if math.isfinite(t2) else 0.0
+        weights = np.array([gamma / 4, gamma / 4, max(0.0, pz)])
+        if weights.sum() > 0:
+            self.steps.append(("p", (q,), float(weights.sum()), weights / weights.sum()))
+
+
+def _apply_event(state: StateVector, qubits, weights, rng):
+    """A non-identity Pauli on ``qubits``: uniform for depolarizing noise
+    (weights None), else X/Y/Z with the given weights."""
+    if weights is None:
+        k = int(rng.integers(1, 4 ** len(qubits)))
+        for i, q in enumerate(qubits):
+            state.pauli((k >> (2 * i)) & 3, q)
+    else:
+        state.pauli(int(rng.choice(3, p=weights)) + 1, qubits[0])
+
+
+def _trajectories(compiled: dict, cal: Calibration, n: int, support: np.ndarray, seed: int = 7):
+    """Mean probabilities by quantum trajectories with no-error splitting.
+
+    The probability P0 that no noise event happens is computed exactly; its
+    contribution is the ideal output. Only trajectories with at least one
+    event are sampled: the first event is drawn from its exact distribution,
+    and the run restarts from a saved copy of the ideal state just before it.
+    """
+    prog = _Program()
+    _run(compiled, cal, n, prog)
+    steps = prog.steps
+    p_event = np.array([st[2] if st[0] == "p" else 0.0 for st in steps])
+    log_keep = np.log1p(-np.minimum(p_event, 1 - 1e-15))
+    before = np.concatenate([[0.0], np.cumsum(log_keep)[:-1]])   # log P(no event before i)
+    p0 = float(np.exp(log_keep.sum()))
+    first = np.where(p_event > 0, p_event * np.exp(before), 0.0)
+    n_unitary = sum(1 for st in steps if st[0] == "u")
+
+    # ideal run with checkpoints
+    stride = max(1, math.ceil(len(steps) / max(1, CHECKPOINT_BYTES // (16 * 2 ** n))))
+    state, checkpoints = StateVector(n), {}
+    for i, st in enumerate(steps):
+        if i % stride == 0:
+            checkpoints[i] = state.copy()
+        if st[0] == "u":
+            (state.apply_1q if len(st[1]) == 1 else state.apply_2q)(st[2], *st[1])
+    ideal = _to_logical(state.probabilities(), compiled, n)
+    if p0 >= 1 - 1e-12 or first.sum() <= 0:
+        return ideal, {"engine": "trajectories (no noise events)", "trajectories": 0,
+                       "standard_error": 0.0}
+
+    rng = np.random.default_rng(seed)
+    first = first / first.sum()
+    max_traj = int(min(MAX_TRAJECTORIES,
+                       max(MIN_TRAJECTORIES, MAX_TRAJECTORY_WORK / (max(1, n_unitary) * 2 ** n))))
+    total, values = None, []
+    while len(values) < max_traj:
+        i0 = int(rng.choice(len(steps), p=first))
+        start = (i0 // stride) * stride
+        sv = checkpoints[start].copy()
+        for i in range(start, len(steps)):
+            st = steps[i]
+            if st[0] == "u":
+                (sv.apply_1q if len(st[1]) == 1 else sv.apply_2q)(st[2], *st[1])
+            elif i == i0 or (i > i0 and rng.random() < st[2]):
+                _apply_event(sv, st[1], st[3], rng)
+        probs = _to_logical(sv.probabilities(), compiled, n)
+        total = probs if total is None else total + probs
+        values.append(float(probs[support].sum()))
+        k = len(values)
+        if k >= MIN_TRAJECTORIES and \
+                (1 - p0) * np.std(values, ddof=1) / math.sqrt(k) <= TARGET_STANDARD_ERROR:
+            break
+    k = len(values)
+    se = float((1 - p0) * np.std(values, ddof=1) / math.sqrt(k)) if k > 1 else math.nan
+    mean = p0 * ideal + (1 - p0) * total / k
+    return mean, {"engine": f"{k} trajectories", "trajectories": k, "standard_error": se,
+                  "p_no_error": p0}
 
 
 def _readout(compiled, cal):
@@ -496,41 +623,87 @@ def _readout(compiled, cal):
             [cal.p10[phys[pos[i]]] for i in range(len(pos))])
 
 
-def _prepare(qasm_path_or_circuit, calibration):
+def _mirror(compiled: dict) -> dict:
+    """The compiled circuit followed by its inverse (same native ops,
+    reversed and conjugated). Ideally it returns every qubit to |0>, so its
+    success is measurable whatever the original output looks like."""
+    inverse = []
+    for op in reversed(compiled["ops"]):
+        inverse.append((op[0], op[1], op[2].conj().T) + tuple(op[3:]))
+    n = len(compiled["final_pos"])
+    return {**compiled, "ops": list(compiled["ops"]) + inverse, "final_pos": list(range(n))}
+
+
+def _prepare(qasm_path_or_circuit, calibration, exact_only: bool = False):
     circ = (qasm_path_or_circuit if isinstance(qasm_path_or_circuit, _circuit.Circuit)
             else _circuit.load(qasm_path_or_circuit))
     cal = load(calibration)
     n = circ.num_qubits
-    if n > MAX_QUBITS:
-        return None, f"{n} qubits > {MAX_QUBITS} (exact density-matrix limit)"
+    limit = MAX_QUBITS if exact_only else MAX_QUBITS_TRAJECTORIES
+    if n > limit:
+        kind = "exact density-matrix" if exact_only else "trajectory"
+        return None, f"{n} qubits > {limit} ({kind} limit)"
     support = np.abs(statevector(circ)) ** 2 > 1e-9
     fraction = float(support.sum()) / 2 ** n
-    if fraction > 0.5:
-        return None, (f"ideal output support covers {fraction:.0%} of bitstrings: "
-                      "the success fraction cannot detect errors")
     return (circ, cal, support, fraction), None
 
 
-def success_fraction(qasm_path_or_circuit, calibration, layout: Optional[list] = None) -> dict:
-    """Unmitigated success fraction on a calibrated device (exact).
+def _simulate(compiled: dict, cal: Calibration, n: int, support: np.ndarray, seed: int = 7):
+    """Mean probabilities and engine info: exact up to MAX_QUBITS, else
+    quantum trajectories (see ``_trajectories``)."""
+    if n <= MAX_QUBITS:
+        return simulate_compiled(compiled, cal, n), {"engine": "exact density matrix"}
+    return _trajectories(compiled, cal, n, support, seed)
 
-    Returns ``available`` False with a ``reason`` when the circuit is too
-    large or its output support too broad for the metric to mean anything.
+
+def success_fraction(qasm_path_or_circuit, calibration, layout: Optional[list] = None) -> dict:
+    """Unmitigated reliability on a calibrated device.
+
+    Two metrics, chosen from the ideal output:
+
+    - ``output_support`` (ideal output on at most half of the bitstrings):
+      the probability of landing in the ideal output support;
+    - ``mirror`` (broad outputs, e.g. variational circuits): the circuit
+      followed by its inverse is simulated on the device; its probability of
+      returning to |0...0> without readout error, F_mirror, gives the
+      circuit's estimated fidelity sqrt(F_mirror), times the probability
+      that no measured qubit is misread. An estimate: errors in the two
+      halves are assumed independent; coherent errors can partly cancel.
+
+    Exact (density matrix) up to 10 qubits, quantum trajectories up to 20
+    (``standard_error`` then reports the sampling uncertainty).
     """
     prepared, reason = _prepare(qasm_path_or_circuit, calibration)
     if prepared is None:
         return {"available": False, "reason": reason}
-    circ, cal, support, _ = prepared
+    circ, cal, support, fraction = prepared
+    n = circ.num_qubits
     compiled = compile_to_device(circ, cal, layout)
-    probs = simulate_compiled(compiled, cal, circ.num_qubits)
     p01, p10 = _readout(compiled, cal)
-    return {"available": True,
-            "device_model": f"{cal.name} calibration",
-            "calibration_source": cal.source,
-            "physical_qubits": compiled["physical"],
-            "two_qubit_gates": sum(1 for op in compiled["ops"] if op[0] == "2q"),
-            "success_fraction": float(apply_readout_error(probs, p01, p10)[support].sum()),
-            "success_fraction_readout_mitigated": float(probs[support].sum())}
+    result = {"available": True,
+              "device_model": f"{cal.name} calibration",
+              "calibration_source": cal.source,
+              "physical_qubits": compiled["physical"],
+              "two_qubit_gates": sum(1 for op in compiled["ops"] if op[0] == "2q")}
+    if fraction <= 0.5:
+        probs, engine = _simulate(compiled, cal, n, support)
+        result.update(metric="output_support", **engine,
+                      success_fraction=float(apply_readout_error(probs, p01, p10)[support].sum()),
+                      success_fraction_readout_mitigated=float(probs[support].sum()))
+    else:
+        zero = np.zeros(2 ** n, dtype=bool)
+        zero[0] = True
+        probs, engine = _simulate(_mirror(compiled), cal, n, zero)
+        f_mirror = float(probs[0])
+        fidelity = math.sqrt(max(0.0, f_mirror))
+        readout = float(np.prod([1 - (a + b) / 2 for a, b in zip(p01, p10)]))
+        if "standard_error" in engine:          # propagate to sqrt
+            engine["standard_error"] = engine["standard_error"] / (2 * max(fidelity, 1e-12))
+        result.update(metric="mirror", **engine, mirror_success=f_mirror,
+                      output_support_fraction=fraction,
+                      success_fraction=fidelity * readout,
+                      success_fraction_readout_mitigated=fidelity)
+    return result
 
 
 def zne_values(qasm_path_or_circuit, calibration, scale_factors=(1, 2, 3),
@@ -538,10 +711,13 @@ def zne_values(qasm_path_or_circuit, calibration, scale_factors=(1, 2, 3),
     """Success fractions at each noise scale (local folding of the native
     ops). Returns (prepared info dict, scales reached, raw values, values
     with ideal readout mitigation) or (None, reason)."""
-    prepared, reason = _prepare(qasm_path_or_circuit, calibration)
+    prepared, reason = _prepare(qasm_path_or_circuit, calibration, exact_only=True)
     if prepared is None:
         return None, reason
     circ, cal, support, fraction = prepared
+    if fraction > 0.5:
+        return None, (f"ideal output support covers {fraction:.0%} of bitstrings: "
+                      "the ZNE bias needs a concentrated output")
     compiled = compile_to_device(circ, cal, layout)
     if not any(op[0] == "2q" for op in compiled["ops"]):
         return None, "no two-qubit gates to fold"

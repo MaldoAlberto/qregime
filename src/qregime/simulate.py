@@ -205,6 +205,68 @@ class DensityMatrix:
         return np.real(np.diagonal(self.rho.reshape(size, size))).clip(min=0)
 
 
+class StateVector:
+    """A pure state on n qubits with in-place gate and Pauli kernels, for
+    quantum-trajectory simulation (``qregime.calibration`` averages many).
+    Bit q of the amplitude index is qubit q. Views use a few large axes
+    rather than n axes of size 2, which keeps numpy's inner loops long."""
+
+    def __init__(self, n: int, psi: np.ndarray = None):
+        self.n = n
+        if psi is None:
+            psi = np.zeros(2 ** n, dtype=complex)
+            psi[0] = 1.0
+        self.psi = psi
+
+    def copy(self) -> "StateVector":
+        return StateVector(self.n, self.psi.copy())
+
+    def _view(self, fixed: dict):
+        qs = sorted(fixed, reverse=True)
+        shape, index, prev = [], [], self.n
+        for q in qs:
+            shape += [2 ** (prev - q - 1), 2]
+            index += [slice(None), fixed[q]]
+            prev = q
+        shape.append(2 ** prev)
+        index.append(slice(None))
+        return self.psi.reshape(shape)[tuple(index)]
+
+    def apply_1q(self, m: np.ndarray, q: int):
+        a, b = self._view({q: 0}), self._view({q: 1})
+        a_old = a.copy()
+        a *= m[0, 0]
+        a += m[0, 1] * b
+        b *= m[1, 1]
+        b += m[1, 0] * a_old
+
+    def apply_2q(self, m: np.ndarray, q0: int, q1: int):
+        """``m`` is 4x4 in the basis |q1 q0> (q0 least significant)."""
+        views = [self._view({q1: k >> 1, q0: k & 1}) for k in range(4)]
+        old = [v.copy() for v in views]
+        for i, v in enumerate(views):
+            terms = [(m[i, j], old[j]) for j in range(4) if m[i, j] != 0]
+            v[...] = terms[0][0] * terms[0][1]
+            for c, o in terms[1:]:
+                v += c * o
+
+    def pauli(self, k: int, q: int):
+        """Apply Pauli k (0 = I, 1 = X, 2 = Y, 3 = Z) to qubit q."""
+        if k == 1 or k == 2:
+            a, b = self._view({q: 0}), self._view({q: 1})
+            tmp = a.copy()
+            a[...] = b
+            b[...] = tmp
+            if k == 2:                  # Y = i X Z: after the swap, a holds old b
+                a *= -1j
+                b *= 1j
+        elif k == 3:
+            self._view({q: 1})[...] *= -1
+
+    def probabilities(self) -> np.ndarray:
+        return self.psi.real ** 2 + self.psi.imag ** 2
+
+
 def apply_readout_error(probs: np.ndarray, p01, p10) -> np.ndarray:
     """Per-qubit readout flips: p01[i] = P(read 1 | 0), p10[i] = P(read 0 | 1)."""
     n = len(p01)
