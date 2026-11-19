@@ -55,3 +55,59 @@ def test_decide_regime_reports_mitigation():
     qasm = next(os.path.join(path, f) for f in sorted(os.listdir(path)) if f.endswith(".qasm"))
     m = qregime.decide_regime(qasm)["qem"]["mitigation"]
     assert m["method"] == "zne_exponential" and m["precision"] == 0.01
+
+
+# --- simulated ZNE on a device calibration ---------------------------------
+
+def _mirror_qasm(tmp_path, layers=2):
+    import numpy as np
+    from qiskit import QuantumCircuit
+
+    rng = np.random.default_rng(1)
+    u = QuantumCircuit(3)
+    for layer in range(layers):
+        for q in range(3):
+            u.ry(float(rng.uniform(0.1, 3.0)), q)
+        u.cx(layer % 2, layer % 2 + 1)
+    path = tmp_path / "mirror.qasm"
+    path.write_text(qregime.safe_qasm2_dumps(u.compose(u.inverse())))
+    return str(path)
+
+
+def test_fold_gates_reaches_scale():
+    from qiskit import QuantumCircuit
+    from qregime.mitigation import _fold_gates
+
+    qc = QuantumCircuit(2)
+    for _ in range(10):
+        qc.sx(0)
+        qc.cz(0, 1)
+    for scale in (1, 2, 3):
+        folded, reached = _fold_gates(qc, scale)
+        assert reached == pytest.approx(scale)
+        assert len(folded.data) == pytest.approx(scale * len(qc.data))
+    # folding leaves the unitary unchanged
+    from qiskit.quantum_info import Operator
+    assert Operator(_fold_gates(qc, 2)[0]).equiv(Operator(qc))
+
+
+def test_simulate_zne_unavailable_reasons(tmp_path):
+    from qregime.mitigation import simulate_zne
+
+    path = _mirror_qasm(tmp_path)
+    assert simulate_zne(path, hardware="trapped_ion_quantinuum_h2")["available"] is False
+
+
+def test_simulate_zne_on_calibration(tmp_path):
+    pytest.importorskip("qiskit_ibm_runtime")
+    from qregime.mitigation import simulate_zne
+
+    r = simulate_zne(_mirror_qasm(tmp_path))
+    assert r["available"] and r["scale_factors"] == [1.0, 2.0, 3.0]
+    rem = r["zne_with_readout_mitigation"]
+    # noise lowers the success fraction monotonically with the scale
+    assert rem["values"][0] > rem["values"][1] > rem["values"][2]
+    # readout mitigation can only help a success fraction here
+    assert rem["values"][0] >= r["zne"]["values"][0]
+    # a shallow circuit: ZNE + readout mitigation recovers the ideal value
+    assert r["best_abs_bias"] < 0.02

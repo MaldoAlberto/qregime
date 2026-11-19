@@ -32,6 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 qec = ["stim>=1.12", "pymatching>=2.0"]
 deltakit = ["deltakit>=0.10"]  # examples/deltakit_crosscheck.py
+realistic = ["qiskit-ibm-runtime>=0.30"]  # calibrated device models for simulate_zne
 compare = ["qdk", "mitiq"]  # research/comparison/compare_open_tools.py
 notebook = ["jupyter", "matplotlib"]
 dev = ["pytest>=7", "nbclient", "ipykernel", "matplotlib"]

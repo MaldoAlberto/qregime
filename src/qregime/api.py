@@ -22,7 +22,7 @@ import tempfile
 from typing import Optional
 
 from .advisor import profile_circuit, profile_circuit_and_parse, recommend_techniques
-from .mitigation import zne_sampling_cost
+from .mitigation import simulate_zne, zne_sampling_cost
 from .partial_qec import best_feasible_within_hard_budget
 from .regime import (
     DEFAULT_PHYSICAL_QUBIT_BUDGET,
@@ -243,7 +243,7 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
                   physical_qubit_budget: int = DEFAULT_PHYSICAL_QUBIT_BUDGET,
                   reliability_target: float = DEFAULT_RELIABILITY_TARGET,
                   qem_success_fraction: Optional[float] = None,
-                  shots: int = 150) -> dict:
+                  shots: int = 150, simulate_mitigation: bool = False) -> dict:
     """QEM, partial QEC, or FTQC for this circuit on this hardware?
 
     Solves ``argmin cost(regime)`` subject to ``reliability >= target`` and
@@ -262,7 +262,13 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
 
     The regime decision uses the unmitigated reliability. ``qem["mitigation"]``
     adds what mitigating it would cost: the shots exponential ZNE needs for
-    +/-0.01 precision (see ``estimate_zne_cost``).
+    +/-0.01 precision (see ``estimate_zne_cost``). That estimate assumes
+    unbiased extrapolation. With ``simulate_mitigation=True`` (circuits up to
+    10 qubits on a profile with a calibrated device model, currently
+    ``superconductor_ibm``; needs ``qregime[realistic]``), qregime also runs
+    ZNE on the device calibration and reports its bias and whether it reaches
+    the precision, under ``qem["mitigation"]["simulated"]``. Takes about
+    15-40 s per circuit.
     """
     if hardware not in HARDWARE_PROFILES:
         raise ValueError(f"unknown hardware profile {hardware!r}; "
@@ -271,6 +277,8 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
     with _gate_only_qasm(qasm_path) as path:
         report = _decide_regime(path, hw, physical_qubit_budget, reliability_target,
                                 qem_success_fraction, shots)
+        if simulate_mitigation:
+            report["qem"]["mitigation"]["simulated"] = simulate_zne(path, hardware)
     report["qasm_path"] = qasm_path
     return report
 

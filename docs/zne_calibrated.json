@@ -1,0 +1,328 @@
+{
+ "hardware": "superconductor_ibm",
+ "device_model": "fake_torino calibration (qiskit-ibm-runtime fake backend)",
+ "precision": 0.01,
+ "not_modelled": "coherent over-rotations, crosstalk, leakage, drift",
+ "rows": [
+  {
+   "layers": 1,
+   "cx": 6,
+   "qregime_regime": "QEM",
+   "qregime_qem_reliability": 0.9825,
+   "analytic_zne_shots": 1797,
+   "physical_qubits": [
+    92,
+    99,
+    29,
+    36,
+    65,
+    66
+   ],
+   "scale_factors": [
+    1.0,
+    2.0,
+    3.0
+   ],
+   "unmitigated": 0.9170610951875783,
+   "unmitigated_after_readout_mitigation": 0.9722636073507233,
+   "exp_raw": 0.9425855394057837,
+   "rich_raw": 0.9454427807664544,
+   "exp_rem": 0.9995330194415252,
+   "rich_rem": 1.002579087942041,
+   "exp_rem_shots": 2889,
+   "rich_rem_shots": 23652,
+   "best_method": "exponential + readout mitigation",
+   "best_abs_bias": 0.00046698055847482767,
+   "viable": true,
+   "depolarizing_exp_zne_mean": 1.000154146102861
+  },
+  {
+   "layers": 2,
+   "cx": 10,
+   "qregime_regime": "QEM",
+   "qregime_qem_reliability": 0.9715,
+   "analytic_zne_shots": 2973,
+   "physical_qubits": [
+    36,
+    29,
+    28,
+    27,
+    17,
+    8
+   ],
+   "scale_factors": [
+    1.0,
+    2.0,
+    3.0
+   ],
+   "unmitigated": 0.8449591637872266,
+   "unmitigated_after_readout_mitigation": 0.920278115359412,
+   "exp_raw": 0.916580735717818,
+   "rich_raw": 0.9129765328249142,
+   "exp_rem": 0.9991961786994138,
+   "rich_rem": 0.9951313588330625,
+   "exp_rem_shots": 8976,
+   "rich_rem_shots": 59529,
+   "best_method": "exponential + readout mitigation",
+   "best_abs_bias": 0.0008038213005862049,
+   "viable": true,
+   "depolarizing_exp_zne_mean": null
+  },
+  {
+   "layers": 4,
+   "cx": 20,
+   "qregime_regime": "QEM",
+   "qregime_qem_reliability": 0.9515,
+   "analytic_zne_shots": 5214,
+   "physical_qubits": [
+    36,
+    29,
+    28,
+    27,
+    17,
+    8
+   ],
+   "scale_factors": [
+    1.0,
+    2.0,
+    3.0
+   ],
+   "unmitigated": 0.7462016837635571,
+   "unmitigated_after_readout_mitigation": 0.8120467078812824,
+   "exp_raw": 0.9117367174691862,
+   "rich_raw": 0.9134940480237731,
+   "exp_rem": 0.9939592888691244,
+   "rich_rem": 0.9956687492936444,
+   "exp_rem_shots": 25428,
+   "rich_rem_shots": 109170,
+   "best_method": "richardson + readout mitigation",
+   "best_abs_bias": 0.004331250706355649,
+   "viable": true,
+   "depolarizing_exp_zne_mean": 1.0012591376815072
+  },
+  {
+   "layers": 8,
+   "cx": 40,
+   "qregime_regime": "QEM",
+   "qregime_qem_reliability": 0.899,
+   "analytic_zne_shots": 11802,
+   "physical_qubits": [
+    36,
+    29,
+    28,
+    27,
+    17,
+    8
+   ],
+   "scale_factors": [
+    1.0,
+    2.0,
+    3.0
+   ],
+   "unmitigated": 0.6104018964798046,
+   "unmitigated_after_readout_mitigation": 0.6636399081035269,
+   "exp_raw": 0.901494764822502,
+   "rich_raw": 0.891825149843055,
+   "exp_rem": 0.9828864260538137,
+   "rich_rem": 0.9717463597005724,
+   "exp_rem_shots": 62598,
+   "rich_rem_shots": 133170,
+   "best_method": "exponential + readout mitigation",
+   "best_abs_bias": 0.01711357394618629,
+   "viable": false,
+   "depolarizing_exp_zne_mean": 0.9948639068601715
+  },
+  {
+   "layers": 12,
+   "cx": 60,
+   "qregime_regime": "QEM",
+   "qregime_qem_reliability": 0.8445,
+   "analytic_zne_shots": 19968,
+   "physical_qubits": [
+    8,
+    17,
+    27,
+    28,
+    29,
+    36
+   ],
+   "scale_factors": [
+    1.0,
+    2.0,
+    3.0
+   ],
+   "unmitigated": 0.5001178062902414,
+   "unmitigated_after_readout_mitigation": 0.5431450474730785,
+   "exp_raw": 0.8854845311933979,
+   "rich_raw": 0.8317115296388228,
+   "exp_rem": 0.9657526284445281,
+   "rich_rem": 0.9058298924385291,
+   "exp_rem_shots": 118731,
+   "rich_rem_shots": 128025,
+   "best_method": "exponential + readout mitigation",
+   "best_abs_bias": 0.03424737155547186,
+   "viable": false,
+   "depolarizing_exp_zne_mean": null
+  },
+  {
+   "layers": 16,
+   "cx": 80,
+   "qregime_regime": "QEM",
+   "qregime_qem_reliability": 0.7875,
+   "analytic_zne_shots": 30402,
+   "physical_qubits": [
+    36,
+    29,
+    28,
+    27,
+    17,
+    8
+   ],
+   "scale_factors": [
+    1.0,
+    2.0,
+    3.0
+   ],
+   "unmitigated": 0.4006724498344128,
+   "unmitigated_after_readout_mitigation": 0.434937563445602,
+   "exp_raw": 0.8591353728383024,
+   "rich_raw": 0.7566102390112549,
+   "exp_rem": 0.9372608718264464,
+   "rich_rem": 0.8235936796864328,
+   "exp_rem_shots": 221643,
+   "rich_rem_shots": 111189,
+   "best_method": "exponential + readout mitigation",
+   "best_abs_bias": 0.06273912817355365,
+   "viable": false,
+   "depolarizing_exp_zne_mean": 0.9946671544243078
+  },
+  {
+   "layers": 24,
+   "cx": 120,
+   "qregime_regime": "QEM",
+   "qregime_qem_reliability": 0.697,
+   "analytic_zne_shots": 52758,
+   "physical_qubits": [
+    8,
+    17,
+    27,
+    28,
+    29,
+    36
+   ],
+   "scale_factors": [
+    1.0,
+    2.0,
+    3.0
+   ],
+   "unmitigated": 0.2577891720185645,
+   "unmitigated_after_readout_mitigation": 0.2790541765128423,
+   "exp_raw": 0.829457899744654,
+   "rich_raw": 0.568195585885258,
+   "exp_rem": 0.9055755628167776,
+   "rich_rem": 0.6174972306108218,
+   "exp_rem_shots": 960606,
+   "rich_rem_shots": 76566,
+   "best_method": "exponential + readout mitigation",
+   "best_abs_bias": 0.09442443718322235,
+   "viable": false,
+   "depolarizing_exp_zne_mean": 0.9960647518988457
+  },
+  {
+   "layers": 32,
+   "cx": 160,
+   "qregime_regime": "QEM",
+   "qregime_qem_reliability": 0.6215,
+   "analytic_zne_shots": 79986,
+   "physical_qubits": [
+    36,
+    29,
+    28,
+    27,
+    17,
+    8
+   ],
+   "scale_factors": [
+    1.0,
+    2.0,
+    3.0
+   ],
+   "unmitigated": 0.1740227625905406,
+   "unmitigated_after_readout_mitigation": 0.18752683012338311,
+   "exp_raw": 0.6899440854854809,
+   "rich_raw": 0.40853194315853025,
+   "exp_rem": 0.7563235624415453,
+   "rich_rem": 0.4427864517972184,
+   "exp_rem_shots": 2695800,
+   "rich_rem_shots": 54159,
+   "best_method": "exponential + readout mitigation",
+   "best_abs_bias": 0.2436764375584547,
+   "viable": false,
+   "depolarizing_exp_zne_mean": 0.9947665102838068
+  },
+  {
+   "layers": 48,
+   "cx": 240,
+   "qregime_regime": "GAP",
+   "qregime_qem_reliability": 0.4825,
+   "analytic_zne_shots": 173553,
+   "physical_qubits": [
+    8,
+    17,
+    27,
+    28,
+    29,
+    36
+   ],
+   "scale_factors": [
+    1.0,
+    2.0,
+    3.0
+   ],
+   "unmitigated": 0.07895481187182612,
+   "unmitigated_after_readout_mitigation": 0.08455829282112648,
+   "exp_raw": 0.9123628554610523,
+   "rich_raw": 0.19228450981375228,
+   "exp_rem": 0.9876611607351256,
+   "rich_rem": 0.20798978152086367,
+   "exp_rem_shots": 1637928084,
+   "rich_rem_shots": 26808,
+   "best_method": "exponential + readout mitigation",
+   "best_abs_bias": 0.012338839264874446,
+   "viable": false,
+   "depolarizing_exp_zne_mean": 0.9985074753343497
+  },
+  {
+   "layers": 64,
+   "cx": 320,
+   "qregime_regime": "GAP",
+   "qregime_qem_reliability": 0.3745,
+   "analytic_zne_shots": 350034,
+   "physical_qubits": [
+    36,
+    29,
+    28,
+    27,
+    17,
+    8
+   ],
+   "scale_factors": [
+    1.0,
+    2.0,
+    3.0
+   ],
+   "unmitigated": 0.03890153657360151,
+   "unmitigated_after_readout_mitigation": 0.04094097330002915,
+   "exp_raw": 0.21796341279885795,
+   "rich_raw": 0.08362713256959936,
+   "exp_rem": 0.24209934381392953,
+   "rich_rem": 0.08960732783949098,
+   "exp_rem_shots": 430020648,
+   "rich_rem_shots": 15408,
+   "best_method": "exponential + readout mitigation",
+   "best_abs_bias": 0.7579006561860705,
+   "viable": false,
+   "depolarizing_exp_zne_mean": 0.9975996532314856
+  }
+ ]
+}

@@ -34,7 +34,8 @@ def _cmd_decide(args):
     t0 = time.time()
     r = api.decide_regime(args.qasm, hardware=args.hardware,
                           physical_qubit_budget=args.budget,
-                          reliability_target=args.target)
+                          reliability_target=args.target,
+                          simulate_mitigation=args.zne)
     recs = api.recommend(args.qasm, circuit_profile=r["profile"])
     elapsed = time.time() - t0
     if args.json:
@@ -62,6 +63,15 @@ def _cmd_decide(args):
         print(f"        mitigated with ZNE (+/-{m['precision']:g}): "
               f"{_fmt_int(m['total_shots'])} shots ({_fmt_int(m['shots_per_circuit'])} "
               f"x {len(m['scale_factors'])} noise scales; best case, bias not modelled)")
+    sim = m.get("simulated")
+    if sim is not None and not sim["available"]:
+        print(f"        ZNE on device calibration: not run ({sim['reason']})")
+    elif sim is not None:
+        shots = sim["total_shots"]
+        print(f"        ZNE on {sim['device_model'].split(' ')[0]} calibration: "
+              f"{sim['best_method']}, bias {sim['best_abs_bias']:.3f} "
+              f"-> {'reaches' if sim['viable'] else 'does NOT reach'} +/-{sim['precision']:g}"
+              + (f", {_fmt_int(shots)} shots" if shots else ""))
     if f["cost_qubits"] is None:
         print(f"  FTQC  not feasible: {f['infeasible_reason']}")
     else:
@@ -122,6 +132,9 @@ def main(argv=None) -> int:
                        choices=sorted(api.HARDWARE_PROFILES))
     p_dec.add_argument("--budget", type=int, default=1121,
                        help="physical-qubit budget (default: 1121, IBM Condor)")
+    p_dec.add_argument("--zne", action="store_true",
+                       help="also simulate ZNE on the device calibration (<= 10 qubits, "
+                            "needs qregime[realistic]; 15-40 s)")
     p_dec.add_argument("--target", type=float, default=0.5,
                        help="reliability target in [0,1] (default: 0.5)")
     p_dec.add_argument("--json", action="store_true")

@@ -77,13 +77,66 @@ Mitiq's zero-noise extrapolation actually recovers.
   exponential fit (`src/qregime/mitigation.py`). On this benchmark its
   predicted spread is within about 30% of Mitiq's measured spread at every
   depth (`tests/test_mitigation.py`). It assumes no extrapolation bias, so it
-  is a lower bound on real hardware. The decision becomes "mitigate at
+  is a lower bound on real hardware; see the next section for the bias. The decision becomes "mitigate at
   N shots, or correct at M qubits", which is the comparison a user actually
   faces.
+
+## Under a real device calibration
+
+The benchmark above is ZNE's best case. `qregime.mitigation.simulate_zne`
+(also `decide_regime(..., simulate_mitigation=True)` and `qregime decide
+--zne`) runs ZNE on the FakeTorino calibration instead. That calibration has
+per-qubit CZ and one-qubit errors, T1/T2 relaxation during gates and idle
+times, readout errors, and a noise-aware layout. Every gate is folded, as
+Mitiq does by default. Probabilities are exact (density matrix), so the bias
+below contains no sampling noise.
+[`examples/zne_calibrated.py`](../examples/zne_calibrated.py) runs the same
+kind of 6-qubit mirror circuits:
+
+![ZNE on the FakeTorino calibration](zne_calibrated.png)
+
+| CX | qregime | qregime reliability | Calibrated, raw | ZNE exp. | ZNE exp. + readout mit. | ZNE Richardson + readout mit. | Shots for ±0.01 (exp. + readout mit.) |
+|---|---|---|---|---|---|---|---|
+| 6 | QEM | 0.98 | 0.92 | 0.943 | 1.000 | 1.003 | 2,889 |
+| 20 | QEM | 0.95 | 0.75 | 0.912 | 0.994 | 0.996 | 25,428 |
+| 40 | QEM | 0.90 | 0.61 | 0.901 | 0.983 | 0.972 | 62,598 |
+| 60 | QEM | 0.84 | 0.50 | 0.885 | 0.966 | 0.906 | 118,731 |
+| 120 | QEM | 0.70 | 0.26 | 0.829 | 0.906 | 0.617 | 960,606 |
+| 160 | QEM | 0.62 | 0.17 | 0.690 | 0.756 | 0.443 | 2,695,800 |
+| 240 | GAP | 0.48 | 0.08 | 0.912 | 0.988 | 0.208 | 1.6 × 10⁹ |
+| 320 | GAP | 0.37 | 0.04 | 0.218 | 0.242 | 0.090 | 4.3 × 10⁸ |
+
+(All rows, including 10 and 80 CX, are in `zne_calibrated.json`.)
+
+1. **ZNE without readout mitigation never reaches the ideal value.** Folding
+   does not amplify readout error, so the extrapolation lands on the readout
+   floor: 0.94 even at 6 CX. ZNE has to be paired with readout mitigation.
+2. **With readout mitigation, bias sets the limit before shots do.**
+   Exponential ZNE is within ±0.01 only up to 20 CX. The bias is 0.034 at
+   60 CX and 0.094 at 120 CX. Under depolarizing noise the bias stayed below
+   0.01 up to 640 CX. Richardson degrades sooner.
+3. **qregime's unmitigated reliability is optimistic for this device.** Its
+   model has depolarizing two-qubit noise only. The calibration adds
+   one-qubit, idle and readout errors. The calibrated success fraction falls
+   to 0.50 at 60 CX, where qregime predicts 0.84, and qregime keeps QEM up
+   to 160 CX, where the calibrated value is 0.17.
+4. **An unbiased-looking point can be a fit artifact.** At 240 CX the
+   scaled values sit at the asymptote 1/2⁶. The exponential fit lands near 1
+   by chance, and the shot cost (1.6 × 10⁹) shows it is unusable.
+   `simulate_zne` counts ZNE as viable only if the bias is within the
+   precision and the shots stay within `max_shots` (10⁷ by default).
+
+Not modelled: coherent over-rotations, crosstalk, leakage and drift. The
+fake-backend calibration does not contain them, and on hardware they add
+more bias. The shot counts with readout mitigation ignore the extra variance
+that readout inversion adds.
 
 Run (about 12 minutes):
 
 ```bash
 pip install -e ".[compare]"
 python examples/qregime_to_mitiq.py   # writes docs/qregime_to_mitiq.png and .json
+
+pip install -e ".[realistic]"
+python examples/zne_calibrated.py     # writes docs/zne_calibrated.png and .json (~5 min)
 ```

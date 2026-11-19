@@ -87,6 +87,8 @@ r = qregime.decide_regime("my_circuit.qasm", hardware="superconductor_ibm",
                           physical_qubit_budget=1121, reliability_target=0.5)
 print(r["regime"], r["cost_physical_qubits"])
 print(r["qem"]["mitigation"]["total_shots"])         # shots ZNE needs for +/-0.01
+# ZNE bias on the FakeTorino calibration (<= 10 qubits, pip install "qregime[realistic]")
+qregime.decide_regime("small.qasm", simulate_mitigation=True)["qem"]["mitigation"]["simulated"]
 
 qregime.recommend("my_circuit.qasm")                 # which reductions to try
 qregime.estimate_ftqc(16, tcount=3930, p_phys=0.001,  # full fault-tolerance cost
