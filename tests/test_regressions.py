@@ -1,3 +1,4 @@
+import pytest
 """Regression tests for the bugs found by the large-scale stress test
 (paper, section 'Bugs found and fixed'). Each test fails on the old code."""
 import time
@@ -40,6 +41,7 @@ def test_bug2_unknown_group_allocates_nothing():
 
 
 def test_bug2_tracker_scales_to_22_qubits(tmp_path):
+    pytest.importorskip("qiskit")
     from qiskit import transpile
     from qiskit.circuit.library import CDKMRippleCarryAdder
     qc = transpile(CDKMRippleCarryAdder(10).decompose(reps=3),
@@ -60,6 +62,7 @@ def test_bug3_scientific_notation_rewritten():
 
 
 def test_bug3_large_qft_parses_in_pyzx():
+    pytest.importorskip("qiskit")
     from qiskit import transpile
     from qiskit.circuit.library import QFT
     qc = transpile(QFT(16).decompose(reps=3), basis_gates=["cz", "rz", "sx", "x"],

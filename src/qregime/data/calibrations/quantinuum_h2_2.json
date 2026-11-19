@@ -1,0 +1,12 @@
+{
+ "schema": "qregime-calibration/1",
+ "name": "quantinuum_h2_2",
+ "source": "Quantinuum hardware-specifications repository (github.com/Quantinuum/quantinuum-hardware-specifications), notebooks/Emulator parameters.csv and Spec sheet parameters.csv, row H2-2 2024_12_06: p1 = 8e-05, p2 = 1.4e-03, dephasing_error = 5.3e-04, p_meas_0 = 9e-04, p_meas_1 = 1.8e-03. 56 qubits (qreg q[56] in the H2-2 benchmark circuits). Assumptions: dephasing_error is applied per qubit per two-qubit gate layer; the native entangler is an arbitrary-angle ZZ gate; Z rotations are virtual. Not included: leakage (1Q 1.2e-05, 2Q 4.3e-04 in the spec sheet), crosstalk, transport timing.",
+ "date": "2024-12-06",
+ "num_qubits": 56,
+ "connectivity": "all_to_all",
+ "single_qubit": {"error": 8e-05, "duration": 0.0, "decomposition": "arbitrary"},
+ "two_qubit": {"native": "rzz", "error": 1.4e-03, "duration": 1.0},
+ "readout": {"p01": 9e-04, "p10": 1.8e-03},
+ "idle": {"memory_error_per_layer": 5.3e-04}
+}

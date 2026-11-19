@@ -6,7 +6,7 @@ import json
 import sys
 import time
 
-from . import api
+from . import api, calibration
 
 
 def _fmt_int(x):
@@ -36,7 +36,8 @@ def _cmd_decide(args):
                           physical_qubit_budget=args.budget,
                           reliability_target=args.target,
                           simulate_mitigation=args.zne,
-                          use_calibration=not args.no_calibration)
+                          use_calibration=not args.no_calibration,
+                          calibration=args.calibration)
     recs = api.recommend(args.qasm, circuit_profile=r["profile"])
     elapsed = time.time() - t0
     if args.json:
@@ -133,12 +134,15 @@ def main(argv=None) -> int:
                        choices=sorted(api.HARDWARE_PROFILES))
     p_dec.add_argument("--budget", type=int, default=1121,
                        help="physical-qubit budget (default: 1121, IBM Condor)")
+    p_dec.add_argument("--calibration", default=None,
+                       help="device calibration: a bundled name "
+                            f"({', '.join(calibration.available())}) or a JSON file "
+                            "(default: the hardware profile's own)")
     p_dec.add_argument("--no-calibration", action="store_true",
                        help="use the depolarizing model even when a device calibration "
                             "is available")
     p_dec.add_argument("--zne", action="store_true",
-                       help="also simulate ZNE on the device calibration (<= 10 qubits, "
-                            "needs qregime[realistic]; 15-40 s)")
+                       help="also simulate ZNE on the device calibration (<= 10 qubits)")
     p_dec.add_argument("--target", type=float, default=0.5,
                        help="reliability target in [0,1] (default: 0.5)")
     p_dec.add_argument("--json", action="store_true")

@@ -81,81 +81,93 @@ Mitiq's zero-noise extrapolation actually recovers.
   N shots, or correct at M qubits", which is the comparison a user actually
   faces.
 
-## Under a real device calibration
+## Under real device calibrations
 
 The benchmark above is ZNE's best case. `qregime.mitigation.simulate_zne`
 (also `decide_regime(..., simulate_mitigation=True)` and `qregime decide
---zne`) runs ZNE on the FakeTorino calibration instead. That calibration has
-per-qubit CZ and one-qubit errors, T1/T2 relaxation during gates and idle
-times, readout errors, and a noise-aware layout. Every gate is folded, as
-Mitiq does by default. Probabilities are exact (density matrix), so the bias
-below contains no sampling noise.
-[`examples/zne_calibrated.py`](../examples/zne_calibrated.py) runs the same
-kind of 6-qubit mirror circuits:
+--zne`) runs ZNE on a device calibration instead (see
+[calibrations.md](calibrations.md)). The circuit is mapped onto the device,
+compiled to its native gates, its native ops are locally folded, and every
+scaled circuit is simulated exactly (density matrix, so no sampling noise in
+the bias). [`examples/zne_calibrated.py`](../examples/zne_calibrated.py)
+runs the same kind of 6-qubit mirror circuits on two devices:
 
-![ZNE on the FakeTorino calibration](zne_calibrated.png)
+- **IBM Torino** (FakeTorino snapshot): heavy-hex coupling, CZ gates,
+  per-qubit errors, T1/T2 during gates and idle times, readout errors.
+- **Quantinuum H2-2** (published emulator parameters): all-to-all ZZ gates,
+  memory error per layer, asymmetric readout.
 
-| CX | Calibrated, raw | ZNE exp. | ZNE exp. + readout mit. | ZNE Richardson + readout mit. | Shots for ±0.01 (exp. + readout mit.) |
+![ZNE on device calibrations](zne_calibrated.png)
+
+IBM Torino:
+
+| CX | Unmitigated | ZNE exp. | ZNE exp. + readout mit. | ZNE Richardson + readout mit. | Shots for ±0.01 (exp. + readout mit.) |
 |---|---|---|---|---|---|
-| 6 | 0.92 | 0.943 | 1.000 | 1.003 | 2,889 |
-| 20 | 0.75 | 0.912 | 0.994 | 0.996 | 25,428 |
-| 40 | 0.61 | 0.901 | 0.983 | 0.972 | 62,598 |
-| 60 | 0.50 | 0.885 | 0.966 | 0.906 | 118,731 |
-| 120 | 0.26 | 0.829 | 0.906 | 0.617 | 960,606 |
-| 160 | 0.17 | 0.690 | 0.756 | 0.443 | 2,695,800 |
-| 240 | 0.08 | 0.912 | 0.988 | 0.208 | 1.6 × 10⁹ |
-| 320 | 0.04 | 0.218 | 0.242 | 0.090 | 4.3 × 10⁸ |
+| 6 | 0.92 | 0.940 | 0.996 | 1.030 | 2,769 |
+| 20 | 0.80 | 0.891 | 0.998 | 1.006 | 11,967 |
+| 60 | 0.66 | 0.865 | 0.990 | 1.003 | 38,556 |
+| 120 | 0.48 | 0.851 | 0.973 | 0.932 | 125,343 |
+| 240 | 0.26 | 0.822 | 0.940 | 0.655 | 901,950 |
+| 320 | 0.17 | 0.786 | 0.901 | 0.464 | 5,811,111 |
 
-(All rows, including 10 and 80 CX, are in `zne_calibrated.json`.)
+Quantinuum H2-2:
 
-1. **ZNE without readout mitigation never reaches the ideal value.** Folding
-   does not amplify readout error, so the extrapolation lands on the readout
-   floor: 0.94 even at 6 CX. ZNE has to be paired with readout mitigation.
-2. **With readout mitigation, bias sets the limit before shots do.**
-   Exponential ZNE is within ±0.01 only up to 20 CX. The bias is 0.034 at
-   60 CX and 0.094 at 120 CX. Under depolarizing noise the bias stayed below
-   0.01 up to 640 CX. Richardson degrades sooner.
-3. **The depolarizing model is optimistic for this device.** It has
-   two-qubit noise only. The calibration adds one-qubit, idle and readout
-   errors. The calibrated success fraction falls to 0.50 at 60 CX, where the
-   depolarizing model predicts 0.84. Because of this, `decide_regime` now
-   uses the calibration for its QEM reliability whenever it can (see below).
-4. **An unbiased-looking point can be a fit artifact.** At 240 CX the
-   scaled values sit at the asymptote 1/2⁶. The exponential fit lands near 1
-   by chance, and the shot cost (1.6 × 10⁹) shows it is unusable.
-   `simulate_zne` counts ZNE as viable only if the bias is within the
-   precision and the shots stay within `max_shots` (10⁷ by default).
+| CX | Unmitigated | ZNE exp. | ZNE exp. + readout mit. | ZNE Richardson + readout mit. | Shots for ±0.01 (exp. + readout mit.) |
+|---|---|---|---|---|---|
+| 6 | 0.99 | 0.995 | 1.000 | 1.000 | 912 |
+| 20 | 0.96 | 0.991 | 0.997 | 1.024 | 3,918 |
+| 60 | 0.89 | 0.983 | 0.988 | 1.075 | 12,183 |
+| 120 | 0.79 | 0.970 | 0.976 | 1.108 | 28,986 |
+| 240 | 0.62 | 0.945 | 0.950 | 1.084 | 76,119 |
+| 320 | 0.52 | 0.927 | 0.932 | 1.018 | 133,146 |
 
-### qregime's decision now uses the calibration
+(All rows are in `zne_calibrated.json`.)
 
-For circuits up to 10 qubits on the `superconductor_ibm` profile,
-`decide_regime` takes the QEM reliability from an exact simulation on the
-FakeTorino calibration (`reliability_source` starts with
-`calibrated_simulation`). It needs `qregime[realistic]`. Use
-`use_calibration=False` or `qregime decide --no-calibration` for the
-depolarizing model. On the mirror circuits, with the default 50% target:
+1. **On IBM, ZNE without readout mitigation never reaches the ideal value.**
+   Folding does not amplify readout error, so the extrapolation stops at
+   the readout floor (0.94 even at 6 CX). ZNE has to be paired with readout
+   mitigation. On H2-2, readout error is small enough that this barely
+   matters.
+2. **Bias sets the limit before shots do.** Exponential ZNE with readout
+   mitigation stays within ±0.01 up to 60 CX on IBM and 40 CX on H2-2; at
+   120 CX its bias is 0.027 and 0.024. Under the depolarizing model the
+   bias stayed below 0.01 up to 640 CX.
+3. **Richardson is unreliable on both.** It falls short on IBM beyond
+   80 CX and overshoots the ideal value by up to 0.11 on H2-2.
+4. **The depolarizing model is optimistic.** On IBM it predicts 0.85 at
+   60 CX, where the calibration gives 0.66, and it keeps QEM up to 240 CX;
+   with the calibration the boundary is at 120 CX.
 
-| CX | Depolarizing model | FakeTorino calibration (default) |
+Not modelled: leakage, crosstalk and drift (absent from both calibrations),
+and coherent errors unless a calibration sets `zz_overrotation`. On
+hardware they add bias. The shot counts with readout mitigation ignore the
+extra variance that readout inversion adds.
+
+### qregime's decision uses the calibration
+
+For circuits up to 10 qubits whose ideal output is concentrated,
+`decide_regime` takes the QEM reliability from the hardware profile's
+calibration (`superconductor_ibm` uses `ibm_torino`,
+`trapped_ion_quantinuum_h2` uses `quantinuum_h2_2`; `reliability_source`
+starts with `calibrated_simulation`). Pass `calibration=` (a bundled name,
+a JSON file or a dict) to use another device, and `use_calibration=False`
+or `qregime decide --no-calibration` for the depolarizing model. On the IBM
+mirror circuits, with the default 50% target:
+
+| CX | Depolarizing model | IBM Torino calibration (default) |
 |---|---|---|
-| 6 | QEM (0.98) | QEM (0.92) |
-| 20 | QEM (0.95) | QEM (0.75) |
-| 40 | QEM (0.90) | QEM (0.61) |
-| 60 | QEM (0.84) | QEM (0.50) |
-| 80 | QEM (0.79) | GAP (0.40) |
-| 120 | QEM (0.70) | GAP (0.26) |
-| 160 | QEM (0.62) | GAP (0.17) |
-| 240 | GAP (0.48) | GAP (0.08) |
+| 60 | QEM (0.85) | QEM (0.66) |
+| 80 | QEM (0.80) | QEM (0.59) |
+| 120 | QEM (0.71) | GAP (0.48) |
+| 160 | QEM (0.64) | GAP (0.40) |
+| 240 | QEM (0.51) | GAP (0.26) |
 
-The QEM boundary moves from 240 CX to 80 CX. The reliability is the
-unmitigated one, readout error included. Larger circuits, other profiles and
-circuits whose output support covers most bitstrings keep the previous
-sources; `qem["calibration"]["reason"]` says why. The example circuits in
-`examples/circuits/` are all in that group, so their decisions do not change.
-
-Not modelled: coherent over-rotations, crosstalk, leakage and drift. The
-fake-backend calibration does not contain them, and on hardware they add
-more bias. The shot counts with readout mitigation ignore the extra variance
-that readout inversion adds.
+The QEM boundary moves from 320 CX to 120 CX. On H2-2 all these circuits
+stay QEM. The reliability is the unmitigated one, readout error included.
+Larger circuits and circuits whose output support covers most bitstrings
+keep the previous sources; `qem["calibration"]["reason"]` says why. The
+example circuits in `examples/circuits/` are all in that group, so their
+decisions do not change.
 
 Run (about 12 minutes):
 
@@ -163,6 +175,5 @@ Run (about 12 minutes):
 pip install -e ".[compare]"
 python examples/qregime_to_mitiq.py   # writes docs/qregime_to_mitiq.png and .json
 
-pip install -e ".[realistic]"
-python examples/zne_calibrated.py     # writes docs/zne_calibrated.png and .json (~5 min)
+python examples/zne_calibrated.py     # writes docs/zne_calibrated.png and .json (~1 min)
 ```

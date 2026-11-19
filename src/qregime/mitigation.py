@@ -21,7 +21,6 @@ exponentially adds bias, which more shots do not remove.
 """
 from __future__ import annotations
 
-import functools
 import math
 
 import numpy as np
@@ -66,94 +65,11 @@ def zne_sampling_cost(reliability: float, precision: float = DEFAULT_PRECISION,
 
 
 # ---------------------------------------------------------------------------
-# Simulated ZNE under a real device calibration: bias, not only shots
+# Simulated ZNE on a device calibration: bias, not only shots
 # ---------------------------------------------------------------------------
-
-#: hardware profile -> calibrated fake backend in qiskit-ibm-runtime. The IBM
-#: profile's p_2q already comes from FakeTorino (see tool.HARDWARE_PROFILES).
-CALIBRATED_BACKENDS = {"superconductor_ibm": "FakeTorino"}
-MAX_QUBITS_FOR_ZNE_SIMULATION = 10   # exact density matrices: 4**n entries
-
-
-@functools.lru_cache(maxsize=None)
-def _load_backend(hardware: str):
-    """(backend, noise model, None) for a calibrated profile, else (None, None, reason)."""
-    name = CALIBRATED_BACKENDS.get(hardware)
-    if name is None:
-        return None, None, f"no calibrated device model for profile {hardware!r}"
-    try:
-        from qiskit_ibm_runtime import fake_provider
-    except ImportError:
-        return None, None, "needs qiskit-ibm-runtime (pip install 'qregime[realistic]')"
-    from qiskit_aer.noise import NoiseModel
-
-    backend = getattr(fake_provider, name)()
-    return backend, NoiseModel.from_backend(backend), None
-
-
-def _restrict_noise_model(noise_model, active: set):
-    """Copy of ``noise_model`` keeping only errors on ``active`` qubits.
-
-    Aer spends most of a small simulation matching the circuit against a
-    133-qubit noise model; restricting it gives identical results about ten
-    times faster. Falls back to the full model if Aer's internals change.
-    """
-    from qiskit_aer.noise import NoiseModel
-
-    try:
-        small = NoiseModel(basis_gates=noise_model.basis_gates)
-        for gate, errors in noise_model._local_quantum_errors.items():
-            for qubits, error in errors.items():
-                if set(qubits) <= active:
-                    small.add_quantum_error(error, gate, qubits)
-        for qubits, error in noise_model._local_readout_errors.items():
-            if set(qubits) <= active:
-                small.add_readout_error(error, qubits)
-        if noise_model._default_quantum_errors or noise_model._default_readout_error:
-            return noise_model
-        small._custom_noise_passes = list(noise_model._custom_noise_passes)
-        return small
-    except AttributeError:
-        return noise_model
-
-
-def _fold_gates(circuit, scale: float):
-    """Replace a share of the gates G by G G^dag G, spread evenly, so the
-    gate count grows by ``scale`` (Mitiq-style local folding of every gate,
-    so one- and two-qubit noise are both amplified). Measurements, delays
-    and barriers are not folded. Returns the folded circuit and the scale
-    actually reached (gate counts are integers)."""
-    from qiskit import QuantumCircuit
-
-    skip = {"measure", "delay", "barrier", "reset"}
-    gates = [i for i, inst in enumerate(circuit.data) if inst.operation.name not in skip]
-    m = len(gates)
-    n_fold = min(m, round((scale - 1) / 2 * m)) if m else 0
-    chosen = {gates[int(j * m / n_fold)] for j in range(n_fold)} if n_fold else set()
-    out = QuantumCircuit(*circuit.qregs, *circuit.cregs)
-    for i, inst in enumerate(circuit.data):
-        out.append(inst)
-        if i in chosen:
-            out.append(inst.operation.inverse(), inst.qubits, inst.clbits)
-            out.append(inst)
-    return out, (1 + 2 * n_fold / m) if m else 1.0
-
-
-def _apply_readout_error(probs, flips):
-    """Symmetric per-qubit readout flips; bit i of the index is qubit i."""
-
-    n = len(flips)
-    t = np.asarray(probs, dtype=float).reshape((2,) * n)
-    for i, e in enumerate(flips):
-        axis = n - 1 - i
-        t = np.moveaxis(np.tensordot(np.array([[1 - e, e], [e, 1 - e]]), t, axes=([1], [axis])),
-                        0, axis)
-    return t.reshape(-1)
-
 
 def _exponential_fit(scales, values, asymptote):
     """Least-squares fit of ln(y - a) vs. scale; returns (y(0), intercept weights) or None."""
-
     lifted = np.asarray(values) - asymptote
     if np.any(lifted <= 0):
         return None
@@ -161,130 +77,35 @@ def _exponential_fit(scales, values, asymptote):
     return asymptote + float(np.exp(intercept)), _intercept_weights(scales)
 
 
-def _prepare_calibrated(qasm_path: str, hardware: str, seed: int):
-    """Transpile a circuit onto the calibrated device model, ready to simulate.
-
-    Returns (state, None) or (None, reason). ``state`` holds the transpiled
-    circuit, the ideal-support mask, the readout errors of the qubits used,
-    the scheduling pass manager and the simulator.
-    """
-    from qiskit import QuantumCircuit
-    from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary
-    from qiskit.quantum_info import Statevector
-    from qiskit.transpiler import PassManager, generate_preset_pass_manager
-    from qiskit.transpiler.passes import ALAPScheduleAnalysis, BasisTranslator, PadDelay
-    from qiskit_aer import AerSimulator
-
-    backend, noise_model, reason = _load_backend(hardware)
-    if backend is None:
-        return None, reason
-    qc = QuantumCircuit.from_qasm_file(qasm_path)
-    qc.remove_final_measurements()
-    n = qc.num_qubits
-    if n > MAX_QUBITS_FOR_ZNE_SIMULATION:
-        return None, f"{n} qubits > {MAX_QUBITS_FOR_ZNE_SIMULATION} (exact density-matrix limit)"
-    support = Statevector.from_instruction(qc).probabilities() > 1e-9
-    asymptote = float(support.sum()) / 2 ** n
-    if asymptote > 0.5:
-        return None, (f"ideal output support covers {asymptote:.0%} of bitstrings: "
-                      "the success fraction cannot detect errors")
-
-    target = backend.target
-    # noise-aware layout (level 3: VF2 scores layouts by calibrated error;
-    # level 1 keeps a trivial layout whenever it fits) but no gate
-    # cancellation anywhere: the level-0 init stage and no optimization
-    # stage, so the circuit stays the one the user asked about (a mirror
-    # U U^dag would otherwise shrink or vanish)
-    pm = generate_preset_pass_manager(optimization_level=3, backend=backend,
-                                      seed_transpiler=seed)
-    pm.init = generate_preset_pass_manager(optimization_level=0, backend=backend).init
-    pm.optimization = None
-    tqc = pm.run(qc)
-    physical = tqc.layout.final_index_layout()
-    # folded inverses (e.g. sxdg) are translated to native gates, then the
-    # circuit is scheduled; no optimization, so the folds survive
-    schedule = PassManager([BasisTranslator(SessionEquivalenceLibrary, target.operation_names,
-                                            target=target),
-                            ALAPScheduleAnalysis(target=target), PadDelay(target=target)])
-    return {
-        "backend": backend, "circuit": tqc, "physical": physical, "support": support,
-        "asymptote": asymptote, "schedule": schedule,
-        "readout": [target["measure"][(q,)].error or 0.0 for q in physical],
-        "sim": AerSimulator(
-            method="density_matrix", seed_simulator=seed,
-            noise_model=_restrict_noise_model(
-                noise_model, {tqc.find_bit(q).index for inst in tqc.data for q in inst.qubits})),
-    }, None
-
-
-def _calibrated_success(state, scale: float = 1.0):
-    """(scale reached, success fraction with readout error, without readout error)."""
-    folded, reached = _fold_gates(state["circuit"], scale) if scale != 1 else (state["circuit"], 1.0)
-    timed = state["schedule"].run(folded)
-    timed.save_probabilities(qubits=state["physical"])
-    probs = np.asarray(state["sim"].run(timed).result().data()["probabilities"])
-    support = state["support"]
-    return (reached, float(_apply_readout_error(probs, state["readout"])[support].sum()),
-            float(probs[support].sum()))
-
-
-def calibrated_success_fraction(qasm_path: str, hardware: str = "superconductor_ibm",
-                                seed: int = 7) -> dict:
-    """Unmitigated success fraction on the calibrated device model.
-
-    Same metric as qregime's noisy simulation (probability of landing in the
-    ideal output support), but with the device's per-qubit gate errors,
-    T1/T2 relaxation during gates and idle times, readout errors and a
-    noise-aware layout, computed exactly (no shot noise). Up to
-    ``MAX_QUBITS_FOR_ZNE_SIMULATION`` qubits, on profiles listed in
-    ``CALIBRATED_BACKENDS``.
-    """
-    state, reason = _prepare_calibrated(qasm_path, hardware, seed)
-    if state is None:
-        return {"available": False, "reason": reason}
-    _, raw, rem = _calibrated_success(state)
-    return {"available": True,
-            "device_model": f"{state['backend'].name} calibration (qiskit-ibm-runtime fake backend)",
-            "physical_qubits": list(state["physical"]),
-            "success_fraction": raw, "success_fraction_readout_mitigated": rem}
-
-
-def simulate_zne(qasm_path: str, hardware: str = "superconductor_ibm",
+def simulate_zne(qasm_path: str, calibration="ibm_torino",
                  precision: float = DEFAULT_PRECISION,
                  scale_factors=DEFAULT_SCALE_FACTORS, max_shots: int = 10 ** 7,
-                 seed: int = 7) -> dict:
+                 layout=None) -> dict:
     """Run ZNE on a calibrated device model and measure its bias.
 
-    The circuit is transpiled to the device (noise-aware layout), its
-    gates are folded to each scale factor, and the schedule is
-    padded with idle delays, so folding also lengthens idle decoherence.
-    Each scaled circuit is simulated exactly (density matrix) with the
-    device's gate errors, T1/T2 relaxation and readout errors. The metric is
-    qregime's success fraction: probability of landing in the ideal output
-    support (ideal value 1). Exponential (asymptote = support / 2**n) and
-    Richardson extrapolations are compared with 1. ZNE is ``viable`` when
-    the least-biased method's bias is within ``precision`` and the shots it
-    needs for that precision stay within ``max_shots``. The bias is reported
-    with and without ideal readout-error mitigation, because readout error
-    is not amplified by folding.
+    ``calibration`` is a bundled calibration name, a JSON path or a dict
+    (see ``qregime.calibration``). The circuit is mapped and compiled to the
+    device's native gates, the native ops are locally folded (G G^dag G) to
+    each scale factor, and each scaled circuit is simulated exactly with the
+    device's gate errors, idle decoherence and readout errors. The metric is
+    qregime's success fraction (ideal value 1). Exponential (asymptote =
+    support / 2**n) and Richardson extrapolations are compared with 1. ZNE is
+    ``viable`` when the least-biased method's bias is within ``precision``
+    and the shots it needs for that precision stay within ``max_shots``.
+    The bias is reported with and without ideal readout-error mitigation,
+    because readout error is not amplified by folding.
 
-    Not modelled: coherent over-rotations, crosstalk, leakage and drift,
-    which the fake-backend calibration does not contain.
+    Not modelled: leakage, crosstalk, drift; coherent errors only if the
+    calibration sets ``zz_overrotation``.
     """
-    state, reason = _prepare_calibrated(qasm_path, hardware, seed)
-    if state is None:
-        return {"available": False, "reason": reason}
-    if not any(inst.operation.num_qubits == 2 for inst in state["circuit"].data):
-        return {"available": False, "reason": "no two-qubit gates to fold"}
-    backend, asymptote = state["backend"], state["asymptote"]
-    physical = state["physical"]
+    from . import calibration as _calibration
 
-    scales, y_noisy, y_rem = [], [], []
-    for scale in scale_factors:
-        reached, raw_value, rem_value = _calibrated_success(state, float(scale))
-        scales.append(reached)
-        y_noisy.append(raw_value)
-        y_rem.append(rem_value)
+    result, reason = _calibration.zne_values(qasm_path, calibration, scale_factors, layout)
+    if result is None:
+        return {"available": False, "reason": reason}
+    info, scales, y_noisy, y_rem = result
+    asymptote = info["asymptote"]
+    physical = info["physical_qubits"]
 
     def extrapolate(values):
         exp_fit = _exponential_fit(scales, values, asymptote)
@@ -314,7 +135,7 @@ def simulate_zne(qasm_path: str, hardware: str = "superconductor_ibm",
                      if rem[f"{name}_bias"] is not None)
     return {
         "available": True,
-        "device_model": f"{backend.name} calibration (qiskit-ibm-runtime fake backend)",
+        "device_model": info["device_model"],
         "physical_qubits": list(physical),
         "scale_factors": scales,
         "precision": precision,
@@ -326,5 +147,5 @@ def simulate_zne(qasm_path: str, hardware: str = "superconductor_ibm",
         "total_shots": rem[f"{best}_total_shots"],
         "max_shots": max_shots,
         "viable": bias <= precision and (rem[f"{best}_total_shots"] or math.inf) <= max_shots,
-        "not_modelled": "coherent over-rotations, crosstalk, leakage, drift",
+        "not_modelled": "leakage, crosstalk, drift",
     }

@@ -67,14 +67,15 @@ def circuit_interaction_graph(qasm_path: str):
     such gates). Inlined from the research code's graph_layout_search.py so
     the package does not depend on a Qiskit backend object."""
     import rustworkx as rx
-    from qiskit import QuantumCircuit
-    qc = QuantumCircuit.from_qasm_file(qasm_path)
+
+    from . import circuit as _circuit
+    qc = _circuit.load(qasm_path)
     graph = rx.PyGraph()
     graph.add_nodes_from(range(qc.num_qubits))
     weight = {}
-    for instruction in qc.data:
+    for instruction in qc.gates():
         if len(instruction.qubits) == 2:
-            a, b = (qc.find_bit(q).index for q in instruction.qubits)
+            a, b = instruction.qubits
             key = (min(a, b), max(a, b))
             weight[key] = weight.get(key, 0) + 1
     for (a, b), w in weight.items():
@@ -95,6 +96,9 @@ class HardwareProfile:
     # modelo de ruido de circuito con el que se ajusto el umbral del surface
     # code para esta arquitectura (ver resources.NOISE_MODELS)
     noise_model: str = "sd6"
+    # vendor-neutral device calibration (qregime.calibration) used for the
+    # exact calibrated QEM simulation; None when no calibration is published
+    calibration: Optional[str] = None
 
     def __post_init__(self):
         if self.connectivity == "limited" and self.max_hw_degree is None:
@@ -111,13 +115,13 @@ HARDWARE_PROFILES = {
         p_2q=0.0032, connectivity="limited", max_hw_degree=3,
         source="real FakeTorino calibration (heavy-hex, max degree 3), "
                "used throughout the accompanying paper",
-        noise_model="si1000"),
+        noise_model="si1000", calibration="ibm_torino"),
     "trapped_ion_quantinuum_h2": HardwareProfile(
         name="Trapped-ion Quantinuum H2",
         p_2q=0.001, connectivity="all_to_all",
         source="Quantinuum System Model H2: '56 qubits fully-connected', "
                "published two-qubit fidelity >99.9%",
-        noise_model="toy"),
+        noise_model="toy", calibration="quantinuum_h2_2"),
     "trapped_ion_ionq_oxford": HardwareProfile(
         name="Trapped-ion IonQ/Oxford Ionics",
         p_2q=0.0001, connectivity="all_to_all",
@@ -183,11 +187,12 @@ def simulate_expectation(qasm_path: str, hw: HardwareProfile, shots: int = 150,
                           seed: int = 42, verbose: bool = True) -> dict:
     """
     Complemento EMPIRICO (no solo analitico) a estimate_open_ftqc_with_factories():
-    corre una simulacion RUIDOSA real (Qiskit Aer, metodo statevector con
-    muestreo por trayectorias -- no un calculo de probabilidad cerrado) y
+    corre una simulacion RUIDOSA real (matriz de densidad exacta hasta 10
+    qubits; por encima, Qiskit Aer si esta instalado o trayectorias numpy;
+    None si el trabajo excede el limite) y
     mide que fraccion de los shots cae en el SOPORTE IDEAL del circuito
     (el conjunto de bitstrings con probabilidad no nula en la ejecucion sin
-    ruido, calculado una sola vez con Statevector exacto). Esta es la
+    ruido, calculado una sola vez con un statevector exacto). Esta es la
     misma metrica que un circuito real tipo Shor usaria para decidir exito:
     no exige el bitstring EXACTO, exige caer en el conjunto de resultados
     validos.
@@ -205,33 +210,39 @@ def simulate_expectation(qasm_path: str, hw: HardwareProfile, shots: int = 150,
     consistente (mismo tipo de ruido, solo cambia la magnitud p_2q) en vez
     de mezclar un modelo completo con dos aproximados.
     """
-    from qiskit import QuantumCircuit
-    from qiskit.quantum_info import Statevector
-    from qiskit_aer import AerSimulator
-    from qiskit_aer.noise import NoiseModel, depolarizing_error
     import numpy as np
 
-    qc = QuantumCircuit.from_qasm_file(qasm_path)
-    ideal_probs = Statevector.from_instruction(qc).probabilities()
-    ideal_support = set(np.nonzero(ideal_probs > 1e-9)[0].tolist())
+    from . import circuit as _circuit
+    from . import simulate as _sim
 
-    qc_meas = qc.copy()
-    qc_meas.measure_all()
+    circ = _circuit.load(qasm_path)
+    ideal_probs = np.abs(_sim.statevector(circ)) ** 2
+    support = ideal_probs > 1e-9
+    ideal_support = set(np.nonzero(support)[0].tolist())
 
-    noise_model = NoiseModel()
-    noise_model.add_all_qubit_quantum_error(
-        depolarizing_error(hw.p_2q, 2), ["cx", "cz", "ecr", "rzz", "cp"])
-    sim = AerSimulator(method="statevector", noise_model=noise_model)
-    counts = sim.run(qc_meas, shots=shots, seed_simulator=seed).result().get_counts()
-
-    total = sum(counts.values())
-    successes = sum(c for bitstring, c in counts.items()
-                     if int(bitstring.replace(" ", ""), 2) in ideal_support)
-    success_fraction = successes / total if total else 0.0
+    # engine: exact density matrix (small), Qiskit Aer if installed, else
+    # numpy trajectories; None tells the caller to use the analytic proxy
+    total = successes = None
+    if circ.num_qubits <= MAX_QUBITS_FOR_DENSITY_MATRIX:
+        success_fraction = _sim.depolarizing_success(circ, support, hw.p_2q)
+        engine = "exact density matrix"
+    else:
+        aer = _aer_success(qasm_path, hw, shots, seed, ideal_support)
+        if aer is not None:
+            success_fraction, successes, total = aer
+            engine = "qiskit-aer"
+        else:
+            traj = _sim.depolarizing_trajectories(circ, support, hw.p_2q, shots, seed)
+            if traj is None:
+                return None
+            success_fraction, _ = traj
+            total = shots
+            engine = "numpy trajectories"
 
     result = {
         "hardware": hw.name,
         "p_2q": hw.p_2q,
+        "engine": engine,
         "shots": total,
         "ideal_support_size": len(ideal_support),
         "successes": successes,
@@ -240,10 +251,38 @@ def simulate_expectation(qasm_path: str, hw: HardwareProfile, shots: int = 150,
                         "HardwareProfile -- ver limitacion declarada en docstring",
     }
     if verbose:
-        print(f"  [simulacion ruidosa] {hw.name}: exito medido = "
-              f"{success_fraction*100:.2f}% ({successes}/{total} shots caen "
-              f"en el soporte ideal de {len(ideal_support)} bitstrings)")
+        print(f"  [simulacion ruidosa, {engine}] {hw.name}: exito = "
+              f"{success_fraction*100:.2f}% (soporte ideal de {len(ideal_support)} bitstrings)")
     return result
+
+
+#: above this, noisy simulations use Aer (if installed) or trajectories
+MAX_QUBITS_FOR_DENSITY_MATRIX = 10
+
+
+def _aer_success(qasm_path, hw, shots, seed, ideal_support):
+    """Shot-sampled success fraction with Qiskit Aer (optional accelerator).
+    None if Aer is not installed or cannot run the circuit as written."""
+    try:
+        from qiskit import QuantumCircuit
+        from qiskit_aer import AerSimulator
+        from qiskit_aer.noise import NoiseModel, depolarizing_error
+    except ImportError:
+        return None
+    try:
+        qc = QuantumCircuit.from_qasm_file(qasm_path)
+        qc.measure_all()
+        noise_model = NoiseModel()
+        noise_model.add_all_qubit_quantum_error(
+            depolarizing_error(hw.p_2q, 2), ["cx", "cz", "ecr", "rzz", "cp"])
+        sim = AerSimulator(method="statevector", noise_model=noise_model)
+        counts = sim.run(qc, shots=shots, seed_simulator=seed).result().get_counts()
+    except Exception:
+        return None
+    total = sum(counts.values())
+    successes = sum(c for bitstring, c in counts.items()
+                    if int(bitstring.replace(" ", ""), 2) in ideal_support)
+    return (successes / total if total else 0.0), successes, total
 
 
 def validate_expectations_across_architectures(qasm_path: str = "shor_like_sequential.qasm",

@@ -22,7 +22,8 @@ import tempfile
 from typing import Optional
 
 from .advisor import profile_circuit, profile_circuit_and_parse, recommend_techniques
-from .mitigation import calibrated_success_fraction, simulate_zne, zne_sampling_cost
+from . import calibration as _calibration
+from .mitigation import simulate_zne, zne_sampling_cost
 from .partial_qec import best_feasible_within_hard_budget
 from .regime import (
     DEFAULT_PHYSICAL_QUBIT_BUDGET,
@@ -52,7 +53,6 @@ _RECOMMENDATION_NAMES = {
 }
 
 
-_NON_UNITARY_OPS = ("measure", "reset", "barrier")
 
 
 @contextlib.contextmanager
@@ -66,33 +66,30 @@ def _gate_only_qasm(qasm_path: str):
     measurements and resets do change it (dynamic circuits), so those still
     raise an explicit error instead of being silently removed.
     """
-    from qiskit import QuantumCircuit
+    from . import circuit as _circuit
 
-    from .qasm_export import safe_qasm2_dumps
-
-    qc = QuantumCircuit.from_qasm_file(qasm_path)
-    if not any(inst.operation.name in _NON_UNITARY_OPS for inst in qc.data):
+    try:
+        stripped = _circuit.strip_final_measurements(_circuit.load(qasm_path))
+    except _circuit.QASMError as e:
+        raise ValueError(f"{qasm_path}: {e}") from None
+    if stripped is None:
         yield qasm_path
         return
-
-    stripped = qc.remove_final_measurements(inplace=False)
-    leftover = {inst.operation.name for inst in stripped.data} & {"measure", "reset"}
-    if leftover:
-        raise ValueError(
-            f"{qasm_path}: mid-circuit {'/'.join(sorted(leftover))} found. Dynamic "
-            "circuits are not supported yet; only final measurements are accepted.")
-    gates_only = QuantumCircuit(*stripped.qregs, name=stripped.name)
-    for inst in stripped.data:
-        if inst.operation.name != "barrier":
-            gates_only.append(inst)
-
-    fd, tmp_path = tempfile.mkstemp(suffix=".qasm")
+    fd, tmp_path = tempfile.mkstemp(suffix=".qasm", dir=os.path.dirname(os.path.abspath(qasm_path))
+                                    if _has_relative_include(stripped) else None)
     try:
         with os.fdopen(fd, "w") as f:
-            f.write(safe_qasm2_dumps(gates_only))
+            f.write(stripped)
         yield tmp_path
     finally:
         os.remove(tmp_path)
+
+
+def _has_relative_include(text: str) -> bool:
+    """True if the circuit includes a file other than qelib1.inc, which must
+    stay resolvable next to the stripped copy."""
+    import re
+    return any(name != "qelib1.inc" for name in re.findall(r'include\s+"([^"]+)"', text))
 
 
 def _english_ftqc_reason(reason):
@@ -244,7 +241,7 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
                   reliability_target: float = DEFAULT_RELIABILITY_TARGET,
                   qem_success_fraction: Optional[float] = None,
                   shots: int = 150, simulate_mitigation: bool = False,
-                  use_calibration: bool = True) -> dict:
+                  use_calibration: bool = True, calibration=None) -> dict:
     """QEM, partial QEC, or FTQC for this circuit on this hardware?
 
     Solves ``argmin cost(regime)`` subject to ``reliability >= target`` and
@@ -253,13 +250,15 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
 
     The QEM reliability comes from, in order of preference:
       1. ``qem_success_fraction`` if you pass one (e.g. measured on hardware);
-      2. an exact simulation on the device calibration (per-qubit gate
-         errors, T1/T2 during gates and idle times, readout errors,
-         noise-aware layout) for circuits up to 10 qubits on a profile with
-         a calibrated device model (``superconductor_ibm`` -> FakeTorino),
-         when ``use_calibration`` is true and ``qregime[realistic]`` is
-         installed; same success metric as 3, and ``qem["calibration"]``
-         says why it was not used otherwise;
+      2. an exact simulation on a device calibration, for circuits up to 10
+         qubits whose ideal output is concentrated: the circuit is mapped
+         and compiled to the device's native gates and simulated with its
+         gate errors, idle decoherence and readout errors. The calibration
+         is ``calibration`` (a bundled name such as ``"ibm_torino"`` or
+         ``"quantinuum_h2_2"``, a JSON path or a dict; see
+         ``qregime.calibration``), else the hardware profile's own one.
+         ``use_calibration=False`` skips it; ``qem["calibration"]`` says
+         why it was not used otherwise;
       3. a noisy simulation (depolarizing two-qubit noise at the hardware
          profile's error rate), for circuits up to 20 qubits whose ideal
          output is concentrated (support <= 50% of all bitstrings) -- the
@@ -271,25 +270,28 @@ def decide_regime(qasm_path: str, hardware: str = "superconductor_ibm",
     The regime decision uses the unmitigated reliability. ``qem["mitigation"]``
     adds what mitigating it would cost: the shots exponential ZNE needs for
     +/-0.01 precision (see ``estimate_zne_cost``). That estimate assumes
-    unbiased extrapolation. With ``simulate_mitigation=True`` (circuits up to
-    10 qubits on a profile with a calibrated device model, currently
-    ``superconductor_ibm``; needs ``qregime[realistic]``), qregime also runs
-    ZNE on the device calibration and reports its bias and whether it reaches
-    the precision, under ``qem["mitigation"]["simulated"]``. Takes about
-    15-40 s per circuit.
+    unbiased extrapolation. With ``simulate_mitigation=True`` (same limits
+    as the calibrated simulation), qregime also runs ZNE on the device
+    calibration and reports its bias and whether it reaches the precision,
+    under ``qem["mitigation"]["simulated"]``.
     """
     if hardware not in HARDWARE_PROFILES:
         raise ValueError(f"unknown hardware profile {hardware!r}; "
                          f"choose one of {sorted(HARDWARE_PROFILES)}")
     hw = HARDWARE_PROFILES[hardware]
+    calibration = calibration if calibration is not None else hw.calibration
     with _gate_only_qasm(qasm_path) as path:
         calibrated = None
         if qem_success_fraction is None and use_calibration:
-            calibrated = calibrated_success_fraction(path, hardware)
+            calibrated = (_calibration.success_fraction(path, calibration) if calibration
+                          else {"available": False,
+                                "reason": f"no calibration for profile {hardware!r}"})
         report = _decide_regime(path, hw, physical_qubit_budget, reliability_target,
                                 qem_success_fraction, shots, calibrated)
         if simulate_mitigation:
-            report["qem"]["mitigation"]["simulated"] = simulate_zne(path, hardware)
+            report["qem"]["mitigation"]["simulated"] = (
+                simulate_zne(path, calibration) if calibration
+                else {"available": False, "reason": f"no calibration for profile {hardware!r}"})
     report["qasm_path"] = qasm_path
     return report
 
@@ -304,13 +306,21 @@ def _decide_regime(qasm_path, hw, physical_qubit_budget, reliability_target,
     elif calibrated is not None and calibrated["available"]:
         qem_success_fraction = calibrated["success_fraction"]
         qem_source = (f"calibrated_simulation ({calibrated['device_model'].split(' ')[0]}: "
-                      f"gate, T1/T2, idle and readout errors; exact)")
+                      f"native gates, idle and readout errors; exact)")
     elif prof["num_qubits"] <= MAX_QUBITS_FOR_SIMULATION:
         sim = simulate_expectation(qasm_path, hw, shots=shots, verbose=False)
-        support_fraction = sim["ideal_support_size"] / 2 ** prof["num_qubits"]
-        if support_fraction <= MAX_INFORMATIVE_SUPPORT_FRACTION:
+        support_fraction = (sim["ideal_support_size"] / 2 ** prof["num_qubits"]
+                            if sim is not None else None)
+        if sim is None:
+            qem_success_fraction = proxy
+            qem_source = ("analytic_proxy (1-p_2q)^two_qubit_count; noisy simulation "
+                          "too large without qiskit-aer")
+        elif support_fraction <= MAX_INFORMATIVE_SUPPORT_FRACTION:
             qem_success_fraction = sim["success_fraction_measured"]
-            qem_source = f"noisy_simulation ({shots} shots)"
+            qem_source = {"qiskit-aer": f"noisy_simulation ({shots} shots)",
+                          "exact density matrix": "noisy_simulation (exact density matrix)",
+                          "numpy trajectories": f"noisy_simulation ({shots} trajectories)",
+                          }[sim["engine"]]
         else:
             # The simulation metric counts shots landing in the ideal output
             # support. When that support is (nearly) every bitstring -- as for

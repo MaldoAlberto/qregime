@@ -20,8 +20,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
-    "qiskit>=1.0,<3",
-    "qiskit-aer>=0.14",
     "pyzx>=0.8",
     "networkx>=3.0",
     "numpy>=1.24",
@@ -30,9 +28,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# optional: Qiskit Aer speeds up noisy simulations of 11-20 qubits, and
+# qregime.safe_qasm2_dumps exports Qiskit circuits; the examples use it too
+qiskit = ["qiskit>=1.0,<3", "qiskit-aer>=0.14"]
 qec = ["stim>=1.12", "pymatching>=2.0"]
 deltakit = ["deltakit>=0.10"]  # examples/deltakit_crosscheck.py
-realistic = ["qiskit-ibm-runtime>=0.30"]  # calibrated device models for simulate_zne
+# export a Qiskit/IBM backend's calibration (research/calibrations/export_qiskit_backend.py)
+ibm = ["qiskit>=1.0,<3", "qiskit-ibm-runtime>=0.30"]
 compare = ["qdk", "mitiq"]  # research/comparison/compare_open_tools.py
 notebook = ["jupyter", "matplotlib"]
 dev = ["pytest>=7", "nbclient", "ipykernel", "matplotlib"]
@@ -49,7 +51,7 @@ Issues = "https://github.com/MaldoAlberto/qregime/issues"
 where = ["src"]
 
 [tool.setuptools.package-data]
-qregime = ["data/*.json"]
+qregime = ["data/*.json", "data/*.inc", "data/calibrations/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

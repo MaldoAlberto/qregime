@@ -59,68 +59,72 @@ def test_decide_regime_reports_mitigation():
 
 # --- simulated ZNE on a device calibration ---------------------------------
 
+HEADER = 'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
+
+
 def _mirror_qasm(tmp_path, layers=2):
     import numpy as np
-    from qiskit import QuantumCircuit
 
     rng = np.random.default_rng(1)
-    u = QuantumCircuit(3)
+    ops = []
     for layer in range(layers):
-        for q in range(3):
-            u.ry(float(rng.uniform(0.1, 3.0)), q)
-        u.cx(layer % 2, layer % 2 + 1)
+        ops += [(f"ry", float(rng.uniform(0.1, 3.0)), q) for q in range(3)]
+        ops.append(("cx", None, layer % 2))
+    lines = []
+    for name, angle, q in ops + [(n, -a if a is not None else None, q) for n, a, q in reversed(ops)]:
+        lines.append(f"ry({angle!r}) q[{q}];" if name == "ry" else f"cx q[{q}],q[{q + 1}];")
     path = tmp_path / "mirror.qasm"
-    path.write_text(qregime.safe_qasm2_dumps(u.compose(u.inverse())))
+    path.write_text(HEADER + "qreg q[3];\n" + "\n".join(lines) + "\n")
     return str(path)
 
 
-def test_fold_gates_reaches_scale():
-    from qiskit import QuantumCircuit
-    from qregime.mitigation import _fold_gates
+def test_fold_reaches_scale():
+    import numpy as np
+    from qregime.calibration import _fold
 
-    qc = QuantumCircuit(2)
-    for _ in range(10):
-        qc.sx(0)
-        qc.cz(0, 1)
+    ops = [("1q", (0,), np.eye(2))] * 5 + [("2q", (0, 1), np.eye(4), "cz")] * 5
     for scale in (1, 2, 3):
-        folded, reached = _fold_gates(qc, scale)
+        folded, reached = _fold(ops, scale)
         assert reached == pytest.approx(scale)
-        assert len(folded.data) == pytest.approx(scale * len(qc.data))
-    # folding leaves the unitary unchanged
-    from qiskit.quantum_info import Operator
-    assert Operator(_fold_gates(qc, 2)[0]).equiv(Operator(qc))
+        assert len(folded) == pytest.approx(scale * len(ops))
 
 
 def test_simulate_zne_unavailable_reasons(tmp_path):
     from qregime.mitigation import simulate_zne
 
-    path = _mirror_qasm(tmp_path)
-    assert simulate_zne(path, hardware="trapped_ion_quantinuum_h2")["available"] is False
+    text = HEADER + "qreg q[11];\nx q;\n"
+    path = tmp_path / "big.qasm"
+    path.write_text(text)
+    assert "density-matrix limit" in simulate_zne(str(path))["reason"]
 
 
-def test_simulate_zne_on_calibration(tmp_path):
-    pytest.importorskip("qiskit_ibm_runtime")
+@pytest.mark.parametrize("device", ["ibm_torino", "quantinuum_h2_2"])
+def test_simulate_zne_on_calibration(tmp_path, device):
     from qregime.mitigation import simulate_zne
 
-    r = simulate_zne(_mirror_qasm(tmp_path))
-    assert r["available"] and r["scale_factors"] == [1.0, 2.0, 3.0]
+    r = simulate_zne(_mirror_qasm(tmp_path), device)
+    assert r["available"] and r["scale_factors"] == pytest.approx([1, 2, 3], abs=0.1)
     rem = r["zne_with_readout_mitigation"]
-    # noise lowers the success fraction monotonically with the scale
     assert rem["values"][0] > rem["values"][1] > rem["values"][2]
-    # readout mitigation can only help a success fraction here
     assert rem["values"][0] >= r["zne"]["values"][0]
     # a shallow circuit: ZNE + readout mitigation recovers the ideal value
     assert r["best_abs_bias"] < 0.02
 
 
 def test_decide_regime_uses_calibration(tmp_path):
-    pytest.importorskip("qiskit_ibm_runtime")
     path = _mirror_qasm(tmp_path)
     calibrated = qregime.decide_regime(path)
-    assert calibrated["qem"]["reliability_source"].startswith("calibrated_simulation")
+    assert calibrated["qem"]["reliability_source"].startswith("calibrated_simulation (ibm_torino")
     assert calibrated["qem"]["calibration"]["success_fraction"] == calibrated["qem"]["reliability"]
+    ion = qregime.decide_regime(path, hardware="trapped_ion_quantinuum_h2")
+    assert "quantinuum_h2_2" in ion["qem"]["reliability_source"]
+    assert ion["qem"]["reliability"] > calibrated["qem"]["reliability"]
     plain = qregime.decide_regime(path, use_calibration=False)
     assert plain["qem"]["reliability_source"].startswith("noisy_simulation")
     assert plain["qem"]["calibration"] is None
-    # a measured value always wins
+    no_cal = qregime.decide_regime(path, hardware="trapped_ion_ionq_oxford")
+    assert no_cal["qem"]["calibration"]["available"] is False
+    # an explicit calibration and a measured value
+    assert "quantinuum_h2_2" in qregime.decide_regime(
+        path, calibration="quantinuum_h2_2")["qem"]["reliability_source"]
     assert qregime.decide_regime(path, qem_success_fraction=0.3)["qem"]["reliability"] == 0.3

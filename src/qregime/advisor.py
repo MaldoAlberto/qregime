@@ -18,8 +18,8 @@ warnings.filterwarnings("ignore")
 import collections
 
 import networkx as nx
-from qiskit import QuantumCircuit as _QiskitCircuit
-from qiskit.quantum_info import Statevector as _Statevector, partial_trace as _partial_trace, entropy as _entropy
+from . import circuit as _circuit
+from .simulate import bipartite_entropy as _bipartite_entropy, statevector as _statevector
 
 from ._qasm import load_pyzx
 from .hypergraph import CircuitHypergraph, resource_report
@@ -85,26 +85,25 @@ def _zz_cost_operator_motif_fraction(qasm_path: str, qc=None) -> float:
     Devuelve la fraccion de aristas del grafo de interaccion que SI
     exhiben alguna de las dos formas (0.0 si no hay ninguna).
 
-    ``qc``: the circuit already parsed with Qiskit, to skip re-parsing."""
+    ``qc``: the circuit already parsed (``qregime.circuit``), to skip re-parsing."""
     if qc is None:
-        qc = _QiskitCircuit.from_qasm_file(qasm_path)
-    data = qc.data
+        qc = _circuit.load(qasm_path)
+    data = qc.gates()
     motif_edges = set()
     total_two_qubit_edges = set()
     for i in range(len(data)):
         instr = data[i]
         if len(instr.qubits) != 2:
             continue
-        a = qc.find_bit(instr.qubits[0]).index
-        b = qc.find_bit(instr.qubits[1]).index
+        a, b = instr.qubits
         edge = (min(a, b), max(a, b))
 
-        if instr.operation.name in _NATIVE_DIAGONAL_TWO_QUBIT_GATES:
+        if instr.name in _NATIVE_DIAGONAL_TWO_QUBIT_GATES:
             total_two_qubit_edges.add(edge)
             motif_edges.add(edge)
             continue
 
-        if instr.operation.name != "cx":
+        if instr.name != "cx":
             total_two_qubit_edges.add(edge)
             continue
         total_two_qubit_edges.add(edge)
@@ -114,14 +113,14 @@ def _zz_cost_operator_motif_fraction(qasm_path: str, qc=None) -> float:
         saw_rz = False
         while j < len(data) and j < i + 4:
             nxt = data[j]
-            nxt_qubits = {qc.find_bit(q).index for q in nxt.qubits}
+            nxt_qubits = set(nxt.qubits)
             if len(nxt.qubits) == 1 and nxt_qubits <= {a, b}:
-                if nxt.operation.name == "rz":
+                if nxt.name == "rz":
                     saw_rz = True
                 j += 1
                 continue
-            if (nxt.operation.name == "cx" and len(nxt.qubits) == 2
-                    and {qc.find_bit(q).index for q in nxt.qubits} == {a, b}):
+            if (nxt.name == "cx" and len(nxt.qubits) == 2
+                    and set(nxt.qubits) == {a, b}):
                 if saw_rz:
                     motif_edges.add(edge)
                 break
@@ -150,14 +149,14 @@ def _qaoa_repeated_angle_signature(qasm_path: str, qc=None) -> bool:
     NINGUNA compuerta de 2 qubits parametrizada; si usa alguna, True solo
     si un unico angulo domina (>=30% de esas instancias).
 
-    ``qc``: the circuit already parsed with Qiskit, to skip re-parsing."""
+    ``qc``: the circuit already parsed (``qregime.circuit``), to skip re-parsing."""
     if qc is None:
-        qc = _QiskitCircuit.from_qasm_file(qasm_path)
+        qc = _circuit.load(qasm_path)
     relevant_gate_names = _PARAMETRIZED_TWO_QUBIT_GATES | _PARAMETRIZED_SINGLE_QUBIT_GATES_IN_ZZ_DECOMPOSITION
     angles = []
-    for instr in qc.data:
-        if instr.operation.name in relevant_gate_names and instr.operation.params:
-            angles.append(round(float(instr.operation.params[0]), 6))
+    for instr in qc.gates():
+        if instr.name in relevant_gate_names and instr.params:
+            angles.append(round(float(instr.params[0]), 6))
     if not angles:
         return False
     most_common_count = collections.Counter(angles).most_common(1)[0][1]
@@ -209,9 +208,9 @@ def _final_state_entanglement_fraction(qasm_path: str, qc=None):
     encima de `_MAX_QUBITS_FOR_EXACT_ENTANGLEMENT_PROBE` qubits, donde el
     statevector exacto deja de ser practico.
 
-    ``qc``: the circuit already parsed with Qiskit, to skip re-parsing."""
+    ``qc``: the circuit already parsed (``qregime.circuit``), to skip re-parsing."""
     if qc is None:
-        qc = _QiskitCircuit.from_qasm_file(qasm_path)
+        qc = _circuit.load(qasm_path)
     n = qc.num_qubits
     if n < 2 or n > _MAX_QUBITS_FOR_EXACT_ENTANGLEMENT_PROBE:
         return None
@@ -219,9 +218,7 @@ def _final_state_entanglement_fraction(qasm_path: str, qc=None):
     max_entropy_bits = min(n_a, n - n_a)
     if max_entropy_bits == 0:
         return None
-    sv = _Statevector.from_instruction(qc)
-    rho_a = _partial_trace(sv, list(range(n_a, n)))
-    s_bits = float(_entropy(rho_a, base=2))
+    s_bits = _bipartite_entropy(_statevector(qc), n, n_a)
     return s_bits / max_entropy_bits
 
 
@@ -233,9 +230,9 @@ def profile_circuit_and_parse(qasm_path: str, n_pcm_probe: int = 4):
     """:func:`profile_circuit`, plus the parsed pyzx circuit (basic gates),
     so callers that need it again (e.g. the treewidth certificate) do not
     parse the file a second time. Each file is parsed once with pyzx and
-    once with Qiskit."""
+    once with ``qregime.circuit``."""
     circuit = load_pyzx(qasm_path).to_basic_gates()
-    qc = _QiskitCircuit.from_qasm_file(qasm_path)
+    qc = _circuit.load(qasm_path)
     hg = CircuitHypergraph(circuit)
     metrics = resource_report(circuit, hypergraph=hg)
     ig = hg.interaction_graph()
