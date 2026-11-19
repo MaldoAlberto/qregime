@@ -28,8 +28,10 @@ def main(hardware="superconductor_ibm"):
         t0 = time.time()
         r = qregime.decide_regime(path, hardware=hardware)
         p = r["profile"]
+        ftqc = r["ftqc"]["cost_qubits"]
+        ftqc = f"{ftqc:>12,}" if ftqc is not None else f"{'infeasible':>12s}"
         print(f"{name:22s} {p['num_qubits']:>6d} {p['tcount']:>8d} "
-              f"{r['qem']['reliability']:>8.1%} {r['ftqc']['cost_qubits']:>12,}  "
+              f"{r['qem']['reliability']:>8.1%} {ftqc}  "
               f"{r['regime']}  ({time.time() - t0:.0f}s)")
     print("\nRegime GAP = neither mitigation nor fault tolerance meets the target within "
           "budget;\nrun `qregime decide <circuit>` to see how large the gap is.")
