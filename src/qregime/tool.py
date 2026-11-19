@@ -122,6 +122,18 @@ HARDWARE_PROFILES = {
         source="Quantinuum System Model H2: '56 qubits fully-connected', "
                "published two-qubit fidelity >99.9%",
         noise_model="toy", calibration="quantinuum_h2_2"),
+    "superconductor_ibm_heron": HardwareProfile(
+        name="Superconducting (IBM Heron, ibm_boston 2026)",
+        p_2q=0.0013, connectivity="limited", max_hw_degree=3,
+        source="qiskit-ibm-runtime 0.52.1 FakeBoston snapshot of ibm_boston (2026-04-17): "
+               "156 qubits, heavy-hex, median CZ error 1.3e-3",
+        noise_model="si1000", calibration="ibm_boston"),
+    "superconductor_ibm_nighthawk": HardwareProfile(
+        name="Superconducting (IBM Nighthawk, ibm_miami 2026)",
+        p_2q=0.0029, connectivity="limited", max_hw_degree=4,
+        source="qiskit-ibm-runtime 0.52.1 FakeMiami snapshot of ibm_miami (2026-04-17): "
+               "120 qubits, square lattice, median CZ error 2.9e-3",
+        noise_model="si1000", calibration="ibm_miami"),
     "superconductor_google_willow": HardwareProfile(
         name="Superconducting (Google Willow, square grid)",
         p_2q=0.0033, connectivity="limited", max_hw_degree=4,
@@ -134,6 +146,18 @@ HARDWARE_PROFILES = {
         source="Abdurakhimov et al., arXiv:2408.12433: IQM Garnet, 20 qubits on a "
                "square lattice, median CZ error 5e-3",
         noise_model="si1000", calibration="iqm_garnet"),
+    "superconductor_iqm_emerald": HardwareProfile(
+        name="Superconducting (IQM Emerald, square lattice)",
+        p_2q=0.0055, connectivity="limited", max_hw_degree=4,
+        source="Joch et al., arXiv:2603.28486 (Mar 2026), Table 1: IQM Emerald, 54 qubits, "
+               "median CZ fidelity 99.45%",
+        noise_model="si1000", calibration="iqm_emerald"),
+    "trapped_ion_quantinuum_helios": HardwareProfile(
+        name="Trapped-ion Quantinuum Helios",
+        p_2q=0.00079, connectivity="all_to_all",
+        source="Ransford et al., arXiv:2511.05465 (Nov 2025): Helios, 98 all-to-all qubits, "
+               "zone-averaged two-qubit infidelity 7.9e-4",
+        noise_model="toy", calibration="quantinuum_helios"),
     "trapped_ion_ionq_forte": HardwareProfile(
         name="Trapped-ion IonQ Forte",
         p_2q=0.0046, connectivity="all_to_all",

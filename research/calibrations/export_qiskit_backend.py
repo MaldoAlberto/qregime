@@ -9,6 +9,7 @@ including a live IBM backend obtained from QiskitRuntimeService.
 import json
 import os
 import sys
+from importlib.metadata import version
 
 from qiskit_ibm_runtime import fake_provider
 
@@ -19,10 +20,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 
 def main(fake_name: str = "FakeTorino", name: str = "ibm_torino"):
     backend = getattr(fake_provider, fake_name)()
+    date = ""
+    try:
+        date = str(backend.properties().last_update_date)[:10]
+    except Exception:
+        pass
     data = from_qiskit_backend(
         backend, name=name,
-        source=f"qiskit-ibm-runtime fake_provider.{fake_name} snapshot of IBM {backend.name} "
-               "(per-qubit sx/readout errors, per-pair CZ errors, T1/T2, gate durations)")
+        source=f"qiskit-ibm-runtime {version('qiskit-ibm-runtime')} fake_provider.{fake_name} "
+               f"snapshot of IBM {backend.name.removeprefix('fake_')} dated {date or 'unknown'} (per-qubit sx/readout "
+               "errors, per-pair two-qubit errors, T1/T2, gate durations)")
+    if date:
+        data["date"] = date
     path = os.path.join(ROOT, "src", "qregime", "data", "calibrations", f"{name}.json")
     with open(path, "w") as f:
         json.dump(data, f, indent=1)

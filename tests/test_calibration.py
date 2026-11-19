@@ -100,8 +100,11 @@ def test_bundled_calibrations_load():
     assert h2.all_to_all and h2.native == "rzz"
 
 
-def test_agrees_with_qiskit_aer_on_fake_torino(tmp_path):
-    """Same layout, Aer density matrix with the FakeTorino noise model and
+@pytest.mark.parametrize("fake, name", [("FakeTorino", "ibm_torino"),
+                                        ("FakeBoston", "ibm_boston"),
+                                        ("FakeMiami", "ibm_miami")])
+def test_agrees_with_qiskit_aer_on_fake_backend(tmp_path, fake, name):
+    """Same layout, Aer density matrix with the fake backend's noise model and
     single-qubit fusion: success fractions agree within 0.005."""
     pytest.importorskip("qiskit_ibm_runtime")
     pytest.importorskip("qiskit_aer")
@@ -112,11 +115,13 @@ def test_agrees_with_qiskit_aer_on_fake_torino(tmp_path):
                                           PadDelay)
     from qiskit_aer import AerSimulator
     from qiskit_aer.noise import NoiseModel
-    from qiskit_ibm_runtime.fake_provider import FakeTorino
+    from qiskit_ibm_runtime import fake_provider
 
     circ = _mirror(n=4, layers=6)
     qc = QuantumCircuit.from_qasm_str(C.to_qasm(circ))
-    backend = FakeTorino()
+    if not hasattr(fake_provider, fake):
+        pytest.skip(f"{fake} needs a newer qiskit-ibm-runtime")
+    backend = getattr(fake_provider, fake)()
     pm = generate_preset_pass_manager(optimization_level=3, backend=backend, seed_transpiler=7)
     pm.init = generate_preset_pass_manager(optimization_level=0, backend=backend).init
     pm.optimization = PassManager([Optimize1qGatesDecomposition(target=backend.target)])
@@ -129,12 +134,14 @@ def test_agrees_with_qiskit_aer_on_fake_torino(tmp_path):
                                     noise_model=NoiseModel.from_backend(backend))
                        .run(timed).result().data()["probabilities"])
     support = np.abs(Statevector(qc).data) ** 2 > 1e-9
-    ours = K.success_fraction(circ, "ibm_torino", layout=list(phys))
+    ours = K.success_fraction(circ, name, layout=list(phys))
     assert ours["success_fraction_readout_mitigated"] == pytest.approx(probs[support].sum(), abs=5e-3)
 
 
 def test_bundled_vendor_calibrations():
     expected = {"google_willow": (105, "cz", False), "iqm_garnet": (20, "cz", False),
+                "ibm_boston": (156, "cz", False), "ibm_miami": (120, "cz", False),
+                "iqm_emerald": (54, "cz", False), "quantinuum_helios": (98, "rzz", True),
                 "ionq_forte": (30, "rzz", True), "quantinuum_h2_2": (56, "rzz", True),
                 "ibm_torino": (133, "cz", False)}
     assert set(expected) <= set(K.available())
@@ -277,7 +284,10 @@ def test_agrees_with_iqm_garnet_noise_model():
 
 
 @pytest.mark.parametrize("hardware", ["superconductor_google_willow",
-                                      "superconductor_iqm_garnet", "trapped_ion_ionq_forte"])
+                                      "superconductor_iqm_garnet", "trapped_ion_ionq_forte",
+                                      "superconductor_ibm_heron", "superconductor_ibm_nighthawk",
+                                      "superconductor_iqm_emerald",
+                                      "trapped_ion_quantinuum_helios"])
 def test_vendor_profiles_use_their_calibration(tmp_path, hardware):
     import qregime
 

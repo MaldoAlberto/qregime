@@ -1,0 +1,12 @@
+{
+ "schema": "qregime-calibration/1",
+ "name": "quantinuum_helios",
+ "source": "Ransford et al., 'Helios: A 98-qubit trapped-ion quantum computer', arXiv:2511.05465 (Nov 2025): 98 137Ba+ qubits, all-to-all; native RZZ(theta) gate, single-qubit U1Q with software Z; zone-averaged infidelities 2.5(1)e-5 (1Q, Clifford RB) and 7.9(2)e-4 (2Q RB), both including leakage; SPAM: 8(1)e-4 preparing |0>, 1.6(5)e-4 preparing |1>; linear memory error rate 5(1)e-4 per depth-1 transport operation. Assumptions: the memory error is applied per qubit per two-qubit gate layer; the quadratic memory term (7e-5) is not modelled. Not modelled: leakage as a separate state, measurement crosstalk.",
+ "date": "2025-11-07",
+ "num_qubits": 98,
+ "connectivity": "all_to_all",
+ "single_qubit": {"error": 2.5e-05, "duration": 0.0, "decomposition": "arbitrary"},
+ "two_qubit": {"native": "rzz", "error": 7.9e-04, "duration": 1.0},
+ "readout": {"p01": 8e-04, "p10": 1.6e-04},
+ "idle": {"memory_error_per_layer": 5e-04}
+}
